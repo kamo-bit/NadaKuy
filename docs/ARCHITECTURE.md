@@ -36,6 +36,14 @@ Playlist, lagu disukai, riwayat, dan pilihan sumber disimpan dalam preferensi pe
 
 `AppUpdates` mengambil rilis stabil terbaru dari endpoint publik GitHub untuk `kamo-bit/NadaKuy`. Versi dibandingkan sebagai tiga komponen bilangan. Tautan rilis dan APK harus tepat berasal dari repository tersebut; draft, prerelease, dan versi tak dikenal tidak ditawarkan. UI mengambil versi terpasang dari PackageManager dan melakukan pemeriksaan hanya atas permintaan pengguna. Pengunduhan dibuka melalui browser, sementara Android tetap menangani persetujuan pemasangan dan pemeriksaan sertifikat APK.
 
+## Lirik
+
+`LyricsRepository` memiliki permintaan HTTP yang dapat dibatalkan dan cache LRCLIB di `noBackupFilesDir/lyrics`. Kunci cache mencakup identitas, judul, artis, durasi, dan versi format. Pencarian memakai lookup metadata lalu search, dengan fallback bacaan Latin judul Jepang; seluruh rangkaian dibatasi 25 detik. Cache berisi rekaman sumber, divalidasi kembali saat dibaca, dan dibatasi 50 file/8 MB.
+
+`LyricsMatching` memiliki pencocokan metadata dan pemeriksaan toleransi durasi empat detik. `LrcParser` mengubah timestamp, offset, dan timestamp berulang menjadi baris terurut. `activeLyricIndex` menghitung baris aktif langsung dari posisi, sehingga seek tidak bergantung pada cursor lama. Lirik tanpa timestamp yang cocok ditampilkan sebagai teks.
+
+`JapaneseRomaji` membaca kana/kanji melalui kamus Kuromoji IPADIC lokal, lalu menerapkan konversi kana ke romaji. Han tanpa penanda kana tidak otomatis dianggap sebagai lirik Jepang. Teks asli dan timestamp tetap dipertahankan. `LyricsScreen` membaca posisi pemutar setiap 200 ms ketika terbuka, tanpa mempercepat polling state global aplikasi, dan menghentikan auto-scroll saat pengguna menggulir manual.
+
 ## Pengujian
 
 Tes JVM melindungi logika yang tidak memerlukan Android. Tes instrumentasi memeriksa batas Android, penyimpanan, MediaSession, dan lifecycle pemutar. Perjalanan yang membutuhkan katalog langsung atau nada uji memakai argumen opt-in agar tes biasa tetap terukur dan tidak memutar audio tanpa sengaja.

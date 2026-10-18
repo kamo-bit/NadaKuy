@@ -10,9 +10,12 @@ NadaKuy uses the following components. Dependency source, licenses, and notices 
 | Coil | 3.3.0 | [Apache-2.0](https://github.com/coil-kt/coil/tree/3.3.0) |
 | OkHttp | 4.12.0 | [Apache-2.0](https://github.com/square/okhttp/tree/parent-4.12.0) |
 | Gson | 2.13.2 | [Apache-2.0](https://github.com/google/gson/tree/gson-parent-2.13.2) |
+| Kuromoji core / IPADIC | 0.9.0 | [Apache-2.0](https://github.com/atilika/kuromoji); original license, contributors and IPADIC dictionary notice included in `app/src/main/assets/licenses` |
 | Kotlin / kotlinx.coroutines | See version catalog | [Kotlin](https://github.com/JetBrains/kotlin), [coroutines](https://github.com/Kotlin/kotlinx.coroutines) |
 | Gradle Wrapper | 9.1.0 | [Apache-2.0](https://github.com/gradle/gradle/tree/v9.1.0) |
 
 The Spotify attribution logo in `app/src/main/res/drawable-nodpi/spotify_logo_white.png` is the unmodified `Spotify_Full_Logo_RGB_White.png` asset from Spotify's [official design asset archive](https://developer.spotify.com/images/guidelines/design/2024-spotify-full-logo.zip). Spotify marks are subject to Spotify's [design guidelines](https://developer.spotify.com/documentation/design).
 
 YouTube, YouTube Music, Spotify, and Audius names identify the connected services. Media, artwork, and service trademarks are not project assets licensed by this repository.
+
+Lyrics are retrieved from [LRCLIB](https://lrclib.net/) using its public API. Availability, original text and timestamps come from that service; lyric content is not licensed as part of NadaKuy's source. Japanese readings are generated locally with Kuromoji and the included IPADIC dictionary, then converted to romaji. Automated readings may differ for names and unusual spellings.

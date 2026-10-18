@@ -43,6 +43,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -73,6 +74,7 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var collection by rememberSaveable { mutableStateOf<String?>(null) }
     var fullPlayer by rememberSaveable { mutableStateOf(false) }
+    var showLyrics by rememberSaveable { mutableStateOf(false) }
     var showQueue by remember { mutableStateOf(false) }
     var options by remember { mutableStateOf<Track?>(null) }
     var addTrack by remember { mutableStateOf<Track?>(null) }
@@ -95,24 +97,26 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
         }
     }
     fun startDownload(track: Track) { requestDownloadNotifications(); model.download(track) }
-    fun showDownloads() { fullPlayer = false; collection = "downloads" }
-    LaunchedEffect(s.source) { if (collection != "downloads" && collection != "settings") collection = null; fullPlayer = false; showQueue = false; showSleepTimer = false }
+    fun showDownloads() { fullPlayer = false; showLyrics = false; tab = 2; collection = "downloads" }
+    LaunchedEffect(s.source) { if (collection != "downloads") collection = null; fullPlayer = false; showLyrics = false; showQueue = false; showSleepTimer = false }
     LaunchedEffect(showQueue) { if (showQueue) model.refreshSpotifyQueue() }
     LaunchedEffect(s.message) { s.message?.let { snackbar.showSnackbar(it); model.dismissMessage() } }
     LaunchedEffect(collection) {
         if (collection?.startsWith("genre:") == true && s.genreTracks.isEmpty() && !s.genreLoading) model.loadGenre(collection!!.removePrefix("genre:"))
     }
-    BackHandler(fullPlayer || collection != null || tab != 0) {
-        when { fullPlayer -> fullPlayer = false; collection != null -> collection = null; else -> tab = 0 }
+    BackHandler(showLyrics || fullPlayer || collection != null || tab != 0) {
+        when { showLyrics -> showLyrics = false; fullPlayer -> fullPlayer = false; collection != null -> collection = null; else -> tab = 0 }
     }
     fun openGenre(genre: Genre) { collection = "genre:${genre.query}"; model.loadGenre(genre.query) }
-    val navigation = listOf("Beranda" to Icons.Rounded.Home, "Cari" to Icons.Rounded.Search, "Koleksi" to Icons.Rounded.LibraryMusic)
+    val navigation = listOf("Beranda" to Icons.Rounded.Home, "Cari" to Icons.Rounded.Search,
+        "Koleksi" to Icons.Rounded.LibraryMusic, "Pengaturan" to Icons.Rounded.Settings)
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= 640.dp
-        Row(Modifier.fillMaxSize()) {
+        Row(if (fullPlayer || showLyrics) Modifier.fillMaxSize().clearAndSetSemantics { } else Modifier.fillMaxSize()) {
             if (wide) NavigationRail(containerColor = Color(0xFF090909), header = { BrandMark(Modifier.padding(vertical = 20.dp)) }) {
                 navigation.forEachIndexed { index, (label, icon) -> NavigationRailItem(selected = tab == index,
-                    onClick = { tab = index; collection = null }, icon = { Icon(icon, label) }, label = { Text(label) }) }
+                    onClick = { tab = index; collection = null }, icon = { Icon(icon, label) }, label = { Text(label) },
+                    modifier = Modifier.semantics { contentDescription = "Tab $label" }) }
             }
             Scaffold(Modifier.weight(1f), containerColor = NadaBackground, contentWindowInsets = WindowInsets.safeDrawing,
                 topBar = {
@@ -130,6 +134,7 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
                         if (!wide) NavigationBar(containerColor = Color(0xFF0A0A0A), tonalElevation = 0.dp) {
                             navigation.forEachIndexed { index, (label, icon) -> NavigationBarItem(
                                 selected = tab == index, onClick = { tab = index; collection = null },
+                                modifier = Modifier.semantics { contentDescription = "Tab $label" },
                                 icon = { Icon(icon, null) }, label = { Text(label) },
                                 colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent,
                                     selectedIconColor = Color.White, selectedTextColor = Color.White,
@@ -139,7 +144,7 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
                 }) { padding ->
                 val content = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)
                 when {
-                    collection == "settings" -> SettingsScreen(s, model, content) { collection = null }
+                    tab == 3 -> SettingsScreen(s, model, content)
                     collection == "downloads" -> DownloadsScreen(s, model, content, { collection = null }, { collection = null; tab = 1 })
                     collection != null -> {
                         val key = collection!!
@@ -155,15 +160,16 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
                     }
                     tab == 0 -> HomeScreen(s, model, content, { options = it }, ::openGenre, { collection = "history" }, { collection = "liked" }, { showInfo = true }, { showSpotify = true })
                     tab == 1 -> SearchScreen(s, model, content, { options = it }, ::openGenre)
-                    else -> LibraryScreen(s, content, { collection = it }, { playlistName = ""; creating = true }, { collection = "settings" })
+                    else -> LibraryScreen(s, content, { collection = it }, { playlistName = ""; creating = true })
                 }
             }
         }
-        if (fullPlayer && s.current != null) FullPlayer(s, model, artworkColor, { fullPlayer = false }, { showQueue = true }, { options = s.current }, { showSleepTimer = true }) {
+        if (fullPlayer && !showLyrics && s.current != null) FullPlayer(s, model, artworkColor, { fullPlayer = false }, { showQueue = true }, { options = s.current }, { showSleepTimer = true }, { showLyrics = true }) {
             val track = s.current
             val saved = s.offline.tracks.find { it.id == track.id }
             if (saved != null && saved.status != OfflineStatus.FAILED) showDownloads() else startDownload(track)
         }
+        if (showLyrics && s.current != null) LyricsScreen(s, model, Modifier.fillMaxSize()) { showLyrics = false }
         if (fullPlayer) SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(12.dp))
     }
     options?.let { track ->
@@ -245,7 +251,7 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
     if (showInfo) AlertDialog(onDismissRequest = { showInfo = false }, title = { Text("NadaKuy. Musik untukmu.") },
         text = { Text("Cari musik dari YouTube Music, YouTube, atau Audius tanpa akun NadaKuy. Spotify tetap tersedia dengan akun Premium dan aplikasi resminya.\n\nKoleksi dan riwayat NadaKuy tersimpan di perangkat ini. Katalog dan ketersediaan tiap sumber berbeda; koneksi internet diperlukan.") },
         confirmButton = { TextButton(onClick = { showInfo = false }) { Text("Mengerti") } },
-        dismissButton = { TextButton(onClick = { showInfo = false; collection = "settings" }) { Text("Pengaturan") } })
+        dismissButton = { TextButton(onClick = { showInfo = false; collection = null; tab = 3 }) { Text("Pengaturan") } })
 }
 
 @Composable
@@ -415,7 +421,7 @@ private fun MiniPlayer(track: Track, s: MusicState, model: MusicViewModel, artwo
 }
 
 @Composable
-private fun FullPlayer(s: MusicState, model: MusicViewModel, background: Color, close: () -> Unit, queue: () -> Unit, options: () -> Unit, timer: () -> Unit, download: () -> Unit) {
+private fun FullPlayer(s: MusicState, model: MusicViewModel, background: Color, close: () -> Unit, queue: () -> Unit, options: () -> Unit, timer: () -> Unit, lyrics: () -> Unit, download: () -> Unit) {
     val track = s.current ?: return
     var seekPreview by remember(track.id) { mutableStateOf<Float?>(null) }
     val liked = s.liked.any { it.id == track.id }
@@ -424,6 +430,7 @@ private fun FullPlayer(s: MusicState, model: MusicViewModel, background: Color, 
         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = close) { Icon(Icons.Rounded.KeyboardArrowDown, "Tutup pemutar", Modifier.size(30.dp)) }
             Text("Sedang diputar", Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.labelLarge)
+            TextButton(onClick = lyrics) { Icon(Icons.Rounded.Lyrics, null, Modifier.size(20.dp)); Spacer(Modifier.width(6.dp)); Text("Lirik") }
             IconButton(onClick = options) { Icon(Icons.Rounded.MoreHoriz, "Opsi lagu") }
         }
         Box(Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 30.dp), contentAlignment = Alignment.Center) { Cover(track, Modifier.widthIn(max = 420.dp).fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(8.dp))) }
@@ -566,4 +573,4 @@ private fun ErrorBlock(text: String, retry: () -> Unit, compact: Boolean = false
     Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = if (compact) 12.dp else 36.dp), horizontalAlignment = Alignment.CenterHorizontally) { Text(text, textAlign = TextAlign.Center, color = NadaMuted); TextButton(onClick = retry) { Text("Coba lagi") } }
 }
 
-private fun timeText(seconds: Long): String = "%d:%02d".format(seconds / 60, seconds % 60)
+internal fun timeText(seconds: Long): String = "%d:%02d".format(seconds / 60, seconds % 60)

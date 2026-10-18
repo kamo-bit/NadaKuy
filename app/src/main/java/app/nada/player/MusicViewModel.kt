@@ -44,6 +44,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import app.nada.player.updates.AppUpdates
 import app.nada.player.updates.UpdateState
+import app.nada.player.lyrics.LyricsRepository
+import app.nada.player.lyrics.LyricsState
+import kotlinx.coroutines.ensureActive
 import app.nada.player.spotify.SpotifyAuth
 import app.nada.player.spotify.SpotifyApi
 import app.nada.player.spotify.SpotifyRemote
@@ -74,6 +77,10 @@ data class CollectionTransferState(val busy: String? = null, val message: String
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = MusicRepository(application)
+    private val lyricsRepository = LyricsRepository(application)
+    private var lyricsJob: Job? = null
+    var lyricsState by mutableStateOf(LyricsState())
+        private set
     val installedVersion: String = application.packageManager.getPackageInfo(application.packageName, 0).versionName ?: "0.0.0"
     var transferState by mutableStateOf(CollectionTransferState())
         private set
@@ -209,6 +216,28 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun togglePlayback() { if (state.source == "spotify") spotifyRemote.toggle() else controller?.togglePlayback() }
+    fun loadLyrics(track: Track, refresh: Boolean = false) {
+        if (!refresh && lyricsState.trackId == track.id && (lyricsState.loading || lyricsState.document != null)) return
+        val previous = lyricsState.takeIf { it.trackId == track.id && it.document != null }
+        lyricsJob?.cancel()
+        lyricsState = previous?.copy(loading = true, error = null) ?: LyricsState(trackId = track.id, loading = true)
+        lyricsJob = viewModelScope.launch {
+            try {
+                val result = lyricsRepository.load(track, refresh)
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                lyricsState = LyricsState(trackId = track.id, document = result.first, cached = result.second)
+            } catch (error: CancellationException) { throw error }
+            catch (error: Exception) {
+                lyricsState = previous?.copy(loading = false, error = "Lirik belum bisa diperbarui. Menampilkan lirik sebelumnya.")
+                    ?: LyricsState(trackId = track.id, error = "Lirik belum bisa dimuat. Periksa internet, lalu coba lagi.")
+            }
+        }
+    }
+    fun closeLyrics() {
+        lyricsJob?.cancel()
+        if (lyricsState.loading) lyricsState = if (lyricsState.document != null) lyricsState.copy(loading = false) else LyricsState()
+    }
+    fun lyricsPosition(): Long = if (state.source == "spotify") state.position else controller?.currentPosition?.coerceAtLeast(0) ?: state.position
     fun download(track: Track) {
         try {
             offlineLibrary.add(track)
@@ -461,5 +490,5 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     private fun spotifyMessage(error: Exception): String = if (error is IllegalStateException || error is IllegalArgumentException) error.message ?: "Hubungkan kembali Spotify." else "Koneksi Spotify belum berhasil. Periksa internet lalu coba lagi."
-    override fun onCleared() { spotifyAuth.cancel(); spotifyRemote.disconnect(); controller?.removeListener(listener); MediaController.releaseFuture(future); super.onCleared() }
+    override fun onCleared() { lyricsJob?.cancel(); lyricsRepository.close(); spotifyAuth.cancel(); spotifyRemote.disconnect(); controller?.removeListener(listener); MediaController.releaseFuture(future); super.onCleared() }
 }

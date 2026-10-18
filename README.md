@@ -19,6 +19,7 @@ APK ini merupakan build debug untuk pengujian, dengan sertifikat lokal yang sama
 - Unduh seluruh playlist atau lagu disukai sekaligus; lagu yang sudah offline dilewati. Pilihan jaringan tanpa kuota berlaku untuk semua unduhan.
 - Backup dan pemulihan playlist, favorit, riwayat putar, serta pencarian melalui pemilih file Android.
 - Pemeriksaan rilis terbaru di GitHub dari Pengaturan, dengan tautan APK resmi dan catatan perubahan.
+- Lirik berjalan dari LRCLIB, sorotan baris aktif, dan ketuk baris untuk seek. Romaji Jepang dibuat lokal di perangkat, dengan teks asli tetap tersedia.
 - Pemutar layar penuh dengan warna yang mengikuti sampul album.
 - Spotify App Remote untuk mengendalikan pemutaran melalui aplikasi Spotify resmi.
 
@@ -39,7 +40,7 @@ Untuk mengunduh seluruh playlist, buka playlist atau **Lagu yang disukai**, teka
 
 ## Backup dan pembaruan
 
-Buka **Koleksi → ikon Pengaturan** di kiri atas. Pengaturan juga dapat dibuka lewat menu **Tentang NadaKuy** di Beranda.
+Buka tab **Pengaturan** di ujung kanan navbar, setelah **Koleksi**. Pada layar lebar, urutan yang sama tersedia di navigation rail. Pengaturan juga dapat dibuka lewat menu **Tentang NadaKuy** di Beranda.
 
 - **Simpan backup** membuat file JSON melalui pemilih lokasi Android. File berisi metadata koleksi, tanpa audio offline, token, atau koneksi Spotify.
 - **Pulihkan dari file** memeriksa isi backup dan menampilkan ringkasan sebelum menggabungkan. Koleksi yang ada tetap disimpan; identitas yang sama digabungkan tanpa duplikat, dan nama playlist lokal dipertahankan. Batas file 8 MB, 1.000 playlist, dan 20.000 entri lagu; riwayat tetap dibatasi 40 lagu serta 10 pencarian.
@@ -47,6 +48,14 @@ Buka **Koleksi → ikon Pengaturan** di kiri atas. Pengaturan juga dapat dibuka 
 - **Cek pembaruan** meminta rilis stabil terbaru dari GitHub tanpa login. NadaKuy hanya menawarkan APK versi lebih baru dari repository resmi. Tombol unduh membuka browser; buka APK dan pilih **Perbarui** melalui Android. Tidak perlu menghapus versi lama.
 
 Pemeriksaan versi dilakukan atas permintaan, bukan di latar belakang. Jika GitHub atau koneksi sedang bermasalah, coba lagi atau buka halaman rilis. Pembaruan pada instalasi yang sama memerlukan nama paket dan sertifikat penandatanganan yang sama.
+
+## Lirik dan romaji
+
+Buka pemutar layar penuh lalu tekan **Lirik** di kanan atas. Lirik dengan timestamp mengikuti posisi pemutar, termasuk setelah seek; ketuk satu baris untuk melompat ke bagian tersebut. Gulir manual untuk membaca bagian lain, lalu tekan **Ikuti lagu** untuk kembali mengikuti pemutaran.
+
+Untuk lirik Jepang, pilihan **Romaji** menampilkan bacaan Latin di bawah tulisan asli. Konversi memakai kamus Jepang lokal, bukan penerjemahan bahasa Mandarin. Bacaan otomatis dapat berbeda untuk nama, ejaan khusus, atau permainan kata. Pilihan romaji hanya muncul ketika ada hasil konversi.
+
+Lirik diperoleh dari LRCLIB berdasarkan judul, artis, dan durasi. Timestamp hanya dipakai jika durasi rekaman cocok dalam toleransi empat detik; versi lain dapat memakai lirik teks dengan keterangan waktu belum tersedia. Ketersediaan dan ketepatan lirik bergantung pada sumber. Lirik yang berhasil dibuka disimpan lokal untuk dibaca lagi tanpa internet; men-download audio tidak otomatis men-download lirik. Cache lirik dibatasi 50 rekaman dan 8 MB, dan tidak disertakan dalam backup koleksi.
 
 ## Mulai mengembangkan
 

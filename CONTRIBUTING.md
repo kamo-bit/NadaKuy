@@ -37,6 +37,7 @@ Tes jaringan dan nada uji tidak berjalan secara default. Aktifkan hanya perjalan
 | `liveQuality=true` | Peringkat hasil, decoder, dan AudioTrack |
 | `liveSession=true` | Antrean, Next/Previous, akhir lagu, dan latar belakang |
 | `transitionTone=true` | Nada deterministik untuk memeriksa transisi audio |
+| `liveLyrics=true` | Lirik nyata Inggris/Jepang, pembacaan kanji, serta pembukaan ulang cache; juga memakai pencarian YouTube Music |
 
 Contoh:
 
@@ -55,3 +56,5 @@ Jelaskan masalah, hasil perubahan, langkah mencoba, dan pemeriksaan yang benar-b
 CI membangun APK debug dan APK uji instrumentasi, menjalankan tes unit, dan memeriksa lint. CI tidak memutar lagu atau menjalankan emulator. Peringatan lint yang sudah ada tidak sama dengan kegagalan build; hindari menambah peringatan baru pada kode yang disentuh.
 
 Untuk backup, uji ekspor/pilih file melalui Storage Access Framework, batal pada pratinjau, penggabungan dua kali, dan file tidak valid tanpa perubahan koleksi. Audio serta sesi Spotify tidak boleh masuk format portabel. Untuk unduhan playlist, pastikan lagu yang sudah selesai/aktif dilewati dan jumlah pada konfirmasi memakai seluruh playlist, termasuk saat pencarian lokal memfilter daftar. Pemeriksaan versi harus membandingkan angka dengan benar, tidak menawarkan downgrade, menolak rilis di luar repository resmi, dan menampilkan pemulihan saat jaringan gagal.
+
+Untuk lirik, pertahankan pasangan judul/artis dan pemeriksaan durasi sebelum memakai timestamp. Jangan memasang waktu buatan pada lirik teks. Uji cursor sebelum baris pertama, seek dua arah, pergantian lagu, gulir manual/Ikuti lagu, dan tampilan asli saat romaji dimatikan. Tes kamus harus berjalan juga di Android agar packaging resource Kuromoji benar-benar terverifikasi. Lirik nyata tidak dimasukkan sebagai fixture di repository; gunakan teks uji sendiri dan log hanya metadata serta jumlah baris.

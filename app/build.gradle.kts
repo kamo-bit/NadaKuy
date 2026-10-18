@@ -10,8 +10,8 @@ android {
         applicationId = "app.nada.player"
         minSdk = 26
         targetSdk = 36
-        versionCode = 10
-        versionName = "1.5.0"
+        versionCode = 11
+        versionName = "1.6.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -36,6 +36,7 @@ android {
     packaging {
       resources {
         excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        merges += listOf("META-INF/CONTRIBUTORS.md", "META-INF/LICENSE.md", "META-INF/NOTICE.md")
       }
     }
 }
@@ -89,5 +90,6 @@ dependencies {
   implementation("androidx.browser:browser:1.9.0")
   implementation("com.github.teamnewpipe:NewPipeExtractor:v0.26.5")
   implementation("com.squareup.okhttp3:okhttp:4.12.0")
+  implementation(libs.kuromoji.ipadic)
   coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.5")
 }

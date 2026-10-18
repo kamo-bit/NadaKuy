@@ -7,7 +7,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -28,7 +27,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @Composable
-fun SettingsScreen(state: MusicState, model: MusicViewModel, modifier: Modifier, back: () -> Unit) {
+fun SettingsScreen(state: MusicState, model: MusicViewModel, modifier: Modifier) {
     val context = LocalContext.current
     val transfer = model.transferState
     val update = model.updateState
@@ -46,10 +45,7 @@ fun SettingsScreen(state: MusicState, model: MusicViewModel, modifier: Modifier,
     Box(modifier, contentAlignment = Alignment.TopCenter) {
     LazyColumn(Modifier.fillMaxHeight().widthIn(max = 720.dp).fillMaxWidth(), contentPadding = PaddingValues(bottom = 32.dp)) {
         item {
-            Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 20.dp, top = 8.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Kembali") }
-                Text("Pengaturan", Modifier.padding(start = 8.dp), style = MaterialTheme.typography.headlineMedium)
-            }
+            Text("Pengaturan", Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 24.dp), style = MaterialTheme.typography.headlineMedium)
             actionError?.let { Text(it, Modifier.padding(horizontal = 24.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.error) }
         }
         item {

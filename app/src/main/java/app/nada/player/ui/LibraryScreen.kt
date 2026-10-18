@@ -24,7 +24,7 @@ import app.nada.player.MusicState
 import app.nada.player.data.Track
 
 @Composable
-fun LibraryScreen(state: MusicState, modifier: Modifier, open: (String) -> Unit, create: () -> Unit, settings: () -> Unit) {
+fun LibraryScreen(state: MusicState, modifier: Modifier, open: (String) -> Unit, create: () -> Unit) {
     var filter by rememberSaveable { mutableIntStateOf(0) }
     var query by rememberSaveable { mutableStateOf("") }
     var searching by rememberSaveable { mutableStateOf(false) }
@@ -34,8 +34,8 @@ fun LibraryScreen(state: MusicState, modifier: Modifier, open: (String) -> Unit,
     val playlists = if (alphabetical) filtered.sortedBy { it.name.lowercase() } else filtered.asReversed()
     LazyColumn(modifier, contentPadding = PaddingValues(bottom = 24.dp)) {
         item { Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = settings) { Icon(Icons.Rounded.Settings, "Pengaturan", tint = NadaGreen) }
-            Text("Koleksi Kamu", Modifier.weight(1f).padding(start = 4.dp), style = MaterialTheme.typography.titleLarge)
+            Box(Modifier.size(36.dp).clip(RoundedCornerShape(50)).background(NadaGreen), contentAlignment = Alignment.Center) { Text("N", color = Color.Black, style = MaterialTheme.typography.titleMedium) }
+            Text("Koleksi Kamu", Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleLarge)
             IconButton(onClick = { searching = !searching; if (!searching) query = "" }) { Icon(Icons.Rounded.Search, "Cari koleksi") }
             IconButton(onClick = create) { Icon(Icons.Rounded.Add, "Buat playlist") }
         } }

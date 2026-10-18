@@ -4,7 +4,7 @@ Pemutar musik Android berbasis Kotlin dan Jetpack Compose. NadaKuy menyediakan p
 
 ## Unduh APK
 
-**[Unduh NadaKuy 1.3.4 untuk Android](https://github.com/kamo-bit/NadaKuy/releases/download/v1.3.4/NadaKuy-1.3.4.apk)**
+**[Unduh NadaKuy 1.4.0 untuk Android](https://github.com/kamo-bit/NadaKuy/releases/download/v1.4.0/NadaKuy-1.4.0.apk)**
 
 Mendukung Android 8.0/API 26 atau lebih baru. Unduh APK melalui browser HP, buka berkasnya, lalu ikuti proses pemasangan Android. Jika diminta, izinkan pemasangan dari browser atau pengelola berkas yang digunakan.
 
@@ -15,10 +15,22 @@ APK ini merupakan build debug untuk pengujian, dengan sertifikat lokal yang sama
 - Pencarian lagu dan artis, dengan peringkat yang mengutamakan kecocokan judul, artis, dan rekaman asli.
 - Pemutaran di latar belakang, kontrol notifikasi, antrean, shuffle, repeat, dan sleep timer.
 - Lagu disukai, playlist, riwayat pemutaran, dan riwayat pencarian yang disimpan di perangkat.
+- Unduhan audio untuk diputar offline di NadaKuy, dengan progres, jeda/lanjutkan, coba lagi, dan penghapusan salinan lokal.
 - Pemutar layar penuh dengan warna yang mengikuti sampul album.
 - Spotify App Remote untuk mengendalikan pemutaran melalui aplikasi Spotify resmi.
 
 YouTube Music menjadi sumber awal. YouTube dan Audius tidak memerlukan API key pengguna. Integrasi YouTube menggunakan NewPipe Extractor; perubahan layanan upstream dapat memerlukan pembaruan dependensi atau resolver. Peringkat pencarian memakai heuristik dan tidak menjamin semua hasil merupakan rekaman resmi.
+
+## Mendengarkan offline
+
+1. Cari lagu YouTube Music, YouTube, atau Audius, lalu buka menu tiga titik pada lagu.
+2. Pilih **Unduh untuk offline**. Izinkan notifikasi jika ingin melihat progres di luar aplikasi.
+3. Buka **Koleksi → Unduhan**. Status **Siap offline** menandakan audio sudah tersimpan sepenuhnya.
+4. Ketuk lagu atau **Putar semua unduhan** untuk mendengarkan salinan lokal, termasuk saat internet dimatikan.
+
+Tombol unduh juga tersedia pada pemutar layar penuh. Unduhan dapat dijeda, dilanjutkan, dicoba kembali, dan dihapus melalui halaman Unduhan. Unduhan yang belum selesai menunggu koneksi jika jaringan terputus. Audio disimpan di ruang aplikasi pada perangkat ini, bukan diekspor sebagai MP3 ke folder Download. Data unduhan tidak ikut backup atau transfer perangkat; koleksi dan playlist tetap memakai penyimpanan yang sudah ada.
+
+Unduhan Spotify tidak tersedia melalui App Remote; pemutaran Spotify tetap ditangani aplikasi Spotify resmi. Menghapus NadaKuy atau membersihkan seluruh data aplikasi akan menghapus salinan offline.
 
 ## Mulai mengembangkan
 
@@ -80,6 +92,7 @@ Ikuti pengaturan dan akses pengguna yang berlaku di [Spotify Developer Dashboard
 | `data` | Model lagu serta penyimpanan koleksi lokal dan katalog Audius |
 | `youtube` | Pencarian, peringkat hasil, pemilihan stream, dan resolver YouTube |
 | `playback` | Media3, service latar belakang, antrean, timer, dan transisi audio |
+| `downloads` | Indeks unduhan, cache audio persisten, dan service unduhan latar belakang |
 | `spotify` | PKCE, penyimpanan sesi terenkripsi, katalog, dan App Remote |
 | `app/src/test` | Tes unit JVM |
 | `app/src/androidTest` | Tes Android dan perjalanan pemutaran opsional |

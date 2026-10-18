@@ -48,6 +48,8 @@ Untuk `liveSession`, pilih sumber YouTube di aplikasi sebelum pengujian. Tes lay
 
 ## Pull request
 
+`OfflineDownloadsTest` menguji service, kecocokan byte cache, pemutar asli tanpa upstream, pemulihan media yang hilang, dan penghapusan metadata rusak dengan fixture lokal. Untuk perubahan unduhan, uji juga lagu dari katalog langsung: unduh, matikan internet, buka ulang aplikasi, putar dan seek, lalu hapus salinan offline. Pastikan jeda/lanjutkan dan kondisi menunggu jaringan tetap jelas. Fixture lokal tidak membuktikan ketersediaan katalog layanan langsung.
+
 Jelaskan masalah, hasil perubahan, langkah mencoba, dan pemeriksaan yang benar-benar dijalankan. Untuk perubahan antarmuka, sertakan tangkapan layar. Untuk audio, sebutkan perangkat, versi Android, sumber musik, serta hasil saat Next/Previous dan pemutaran latar belakang.
 
 CI membangun APK debug dan APK uji instrumentasi, menjalankan tes unit, dan memeriksa lint. CI tidak memutar lagu atau menjalankan emulator. Peringatan lint yang sudah ada tidak sama dengan kegagalan build; hindari menambah peringatan baru pada kode yang disentuh.

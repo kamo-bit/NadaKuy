@@ -21,6 +21,8 @@ import androidx.media3.session.SessionResult
 import app.nada.player.data.LocalPlaylist
 import app.nada.player.data.MusicRepository
 import app.nada.player.data.Track
+import app.nada.player.downloads.OfflineLibrary
+import app.nada.player.downloads.OfflineState
 import app.nada.player.playback.PlaybackService
 import app.nada.player.playback.QueuedTrack
 import app.nada.player.playback.QueueCommands
@@ -54,12 +56,14 @@ data class MusicState(
     val queueError: String? = null,
     val queueHasCurrent: Boolean = true,
     val youtubeVideos: Boolean = false,
+    val offline: OfflineState = OfflineState(),
     val canSeek: Boolean = true, val canNext: Boolean = true, val canPrevious: Boolean = true, val canShuffle: Boolean = true, val canRepeat: Boolean = true,
 )
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = MusicRepository(application)
+    private val offlineLibrary = OfflineLibrary.get(application)
     private val spotifyAuth = SpotifyAuth(application)
     private val spotifyApi = SpotifyApi(spotifyAuth)
     private val connectionPrefs = application.getSharedPreferences("spotify_connection", android.content.Context.MODE_PRIVATE)
@@ -107,6 +111,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
+        viewModelScope.launch { offlineLibrary.state.collect { state = state.copy(offline = it) } }
         future.addListener({
             runCatching { future.get() }.onSuccess { player ->
                 controller = player
@@ -179,7 +184,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (state.source != selected.source) selectSource(selected.source)
         val player = controller ?: run { state = state.copy(message = "Pemutar sedang disiapkan. Coba sebentar lagi."); return }
-        val local = tracks.filter { it.source == selected.source && it.playableInNada }
+        val local = tracks.filter { it.playableInNada }
         player.setMediaItems(local.map { it.toMediaItem() }, local.indexOf(selected).coerceAtLeast(0), 0)
         player.shuffleModeEnabled = shuffled
         player.prepare()
@@ -188,6 +193,19 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun togglePlayback() { if (state.source == "spotify") spotifyRemote.toggle() else controller?.togglePlayback() }
+    fun download(track: Track) {
+        try {
+            offlineLibrary.add(track)
+            state = state.copy(message = "Lagu ditambahkan ke Unduhan")
+        } catch (error: Exception) { state = state.copy(message = "Unduhan belum bisa dimulai. Coba lagi saat aplikasi terbuka.") }
+    }
+    fun pauseDownload(id: String) = changeDownload { offlineLibrary.pause(id) }
+    fun resumeDownload(id: String) = changeDownload { offlineLibrary.resume(id) }
+    fun removeDownload(id: String) = changeDownload { offlineLibrary.remove(id) }
+    fun refreshDownloads() = offlineLibrary.refresh()
+    private fun changeDownload(action: () -> Unit) {
+        try { action() } catch (error: Exception) { state = state.copy(message = "Unduhan belum bisa diubah. Coba lagi.") }
+    }
     fun playQueueItem(mediaIndex: Int) { controller?.playQueueItem(mediaIndex); updatePlayer() }
     fun removeQueueItem(mediaIndex: Int) {
         controller?.let { if (mediaIndex in 0 until it.mediaItemCount && mediaIndex != it.currentMediaItemIndex) it.removeMediaItem(mediaIndex) }
@@ -214,7 +232,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleRepeat() { if (state.source == "spotify") spotifyRemote.repeat() else controller?.let { it.repeatMode = when (it.repeatMode) { Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL; Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE; else -> Player.REPEAT_MODE_OFF } } }
     fun playNext(track: Track) {
         if (track.source == "spotify") { spotifyRemote.queue(track); return }
-        if (track.source != state.source) selectSource(track.source)
+        if (state.source == "spotify") selectSource(track.source)
         val player = controller
         if (player == null || player.mediaItemCount == 0) { play(listOf(track)); return }
         val result = player.sendCustomCommand(QueueCommands.playNext, Bundle().apply { putString(QueueCommands.TRACK, track.toJson().toString()) })

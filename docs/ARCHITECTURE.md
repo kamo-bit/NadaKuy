@@ -14,6 +14,16 @@ Identitas sumber dipertahankan pada lagu. Untuk YouTube, URL media sementara dis
 
 Spotify menggunakan App Remote dan pemutaran berlangsung melalui aplikasi Spotify resmi. Resolver YouTube/Audius tidak menerima identitas lagu Spotify.
 
+## Unduhan offline
+
+`OfflineLibrary` memiliki satu `DownloadManager`, `StandaloneDatabaseProvider`, dan `SimpleCache` dengan `NoOpCacheEvictor` selama proses aplikasi berjalan. `OfflineDownloadService` menjalankan transfer di latar belakang sebagai service `dataSync`, dengan dua unduhan paralel dan scheduler Android untuk persyaratan jaringan.
+
+Request unduhan menyimpan identitas serta metadata lagu dan URI sumber yang stabil. Resolver YouTube dipakai kembali ketika transfer dibuka atau dilanjutkan; URL media sementara tidak menjadi identitas unduhan. Cache key pemutaran dan unduhan sama-sama berasal dari `Track.id` melalui `Track.toMediaItem`.
+
+Pemutar memakai cache baca terlebih dahulu, dengan penulisan cache dimatikan untuk streaming biasa. Hanya unduhan eksplisit yang menambah media offline. Status selesai diperiksa terhadap cakupan byte cache sebelum ditampilkan sebagai siap offline. Metadata yang rusak tetap mempertahankan identitas request agar unduhan dapat dihapus.
+
+Audio berada di `noBackupFilesDir`; indeks Media3 dikecualikan dari backup dan transfer agar status selesai tidak dipulihkan tanpa media. Playlist dan lagu disukai terpisah dari indeks ini.
+
 ## Data lokal
 
 Playlist, lagu disukai, riwayat, dan pilihan sumber disimpan dalam preferensi perangkat. Sesi Spotify disimpan terenkripsi dengan kunci Android Keystore di direktori yang dikecualikan dari backup. Tidak ada sinkronisasi koleksi antarpiranti.

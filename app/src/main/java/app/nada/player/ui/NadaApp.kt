@@ -3,6 +3,12 @@
 package app.nada.player.ui
 
 import android.content.Intent
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -48,6 +54,7 @@ import androidx.media3.common.Player
 import app.nada.player.MusicState
 import app.nada.player.MusicViewModel
 import app.nada.player.data.Track
+import app.nada.player.downloads.OfflineStatus
 import coil3.compose.AsyncImage
 
 private data class Genre(val title: String, val query: String, val color: Color)
@@ -79,7 +86,19 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
     val artworkColor by rememberArtworkColor(s.current)
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
-    LaunchedEffect(s.source) { collection = null; fullPlayer = false; showQueue = false; showSleepTimer = false }
+    var pendingDownload by remember { mutableStateOf<Track?>(null) }
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        pendingDownload?.let(model::download)
+        pendingDownload = null
+    }
+    fun startDownload(track: Track) {
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            pendingDownload = track
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else model.download(track)
+    }
+    fun showDownloads() { fullPlayer = false; collection = "downloads" }
+    LaunchedEffect(s.source) { if (collection != "downloads") collection = null; fullPlayer = false; showQueue = false; showSleepTimer = false }
     LaunchedEffect(showQueue) { if (showQueue) model.refreshSpotifyQueue() }
     LaunchedEffect(s.message) { s.message?.let { snackbar.showSnackbar(it); model.dismissMessage() } }
     LaunchedEffect(collection) {
@@ -122,6 +141,7 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
                 }) { padding ->
                 val content = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)
                 when {
+                    collection == "downloads" -> DownloadsScreen(s, model, content, { collection = null }, { collection = null; tab = 1 })
                     collection != null -> {
                         val key = collection!!
                         val playlist = s.playlists.find { key == "playlist:${it.id}" }
@@ -139,7 +159,11 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
                 }
             }
         }
-        if (fullPlayer && s.current != null) FullPlayer(s, model, artworkColor, { fullPlayer = false }, { showQueue = true }, { options = s.current }, { showSleepTimer = true })
+        if (fullPlayer && s.current != null) FullPlayer(s, model, artworkColor, { fullPlayer = false }, { showQueue = true }, { options = s.current }, { showSleepTimer = true }) {
+            val track = s.current
+            val saved = s.offline.tracks.find { it.id == track.id }
+            if (saved != null && saved.status != OfflineStatus.FAILED) showDownloads() else startDownload(track)
+        }
         if (fullPlayer) SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(12.dp))
     }
     options?.let { track ->
@@ -149,6 +173,23 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
             SheetAction(if (s.liked.any { it.id == track.id }) "Hapus dari lagu disukai" else "Simpan ke lagu disukai", Icons.Rounded.FavoriteBorder) { model.toggleLike(track); options = null }
             SheetAction(if (track.source == "spotify") "Tambahkan ke antrean Spotify" else "Putar berikutnya", Icons.AutoMirrored.Rounded.QueueMusic) { model.playNext(track); options = null }
             SheetAction("Tambahkan ke playlist", Icons.AutoMirrored.Rounded.PlaylistAdd) { options = null; addTrack = track }
+            if (track.playableInNada) {
+                val saved = s.offline.tracks.find { it.id == track.id }
+                if (saved?.status != OfflineStatus.REMOVING) SheetAction(when {
+                    saved?.ready == true -> "Lihat di Unduhan"
+                    saved?.status == OfflineStatus.PAUSED -> "Lanjutkan unduhan"
+                    saved?.status == OfflineStatus.DOWNLOADING || saved?.status == OfflineStatus.QUEUED -> "Lihat progres unduhan"
+                    saved?.status == OfflineStatus.FAILED -> "Unduh ulang"
+                    else -> "Unduh untuk offline"
+                }, if (saved?.ready == true) Icons.Rounded.DownloadDone else Icons.Rounded.Download) {
+                    options = null
+                    when {
+                        saved?.status == OfflineStatus.PAUSED -> model.resumeDownload(track.id)
+                        saved == null || saved.status == OfflineStatus.FAILED -> startDownload(track)
+                        else -> showDownloads()
+                    }
+                }
+            }
             if (s.current != null && s.source != "spotify") SheetAction("Timer tidur", Icons.Rounded.Timer) { options = null; showSleepTimer = true }
             if (collection?.startsWith("playlist:") == true) SheetAction("Hapus dari playlist ini", Icons.Rounded.RemoveCircleOutline) {
                 model.removeFromPlaylist(collection!!.removePrefix("playlist:"), track); options = null
@@ -336,7 +377,7 @@ private fun MiniPlayer(track: Track, s: MusicState, model: MusicViewModel, artwo
 }
 
 @Composable
-private fun FullPlayer(s: MusicState, model: MusicViewModel, background: Color, close: () -> Unit, queue: () -> Unit, options: () -> Unit, timer: () -> Unit) {
+private fun FullPlayer(s: MusicState, model: MusicViewModel, background: Color, close: () -> Unit, queue: () -> Unit, options: () -> Unit, timer: () -> Unit, download: () -> Unit) {
     val track = s.current ?: return
     var seekPreview by remember(track.id) { mutableStateOf<Float?>(null) }
     val liked = s.liked.any { it.id == track.id }
@@ -374,6 +415,13 @@ private fun FullPlayer(s: MusicState, model: MusicViewModel, background: Color, 
         Row(Modifier.fillMaxWidth().padding(top = 22.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Rounded.Headphones, null, tint = NadaGreen, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
             Text(if (s.source == "spotify") "Pemutar Spotify" else "Perangkat ini", color = NadaGreen, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            if (track.playableInNada) {
+                val saved = s.offline.tracks.find { it.id == track.id }
+                IconButton(onClick = download) {
+                    Icon(if (saved?.ready == true) Icons.Rounded.DownloadDone else Icons.Rounded.Download,
+                        if (saved?.ready == true) "Lagu tersedia offline" else "Unduh lagu", tint = if (saved?.ready == true) NadaGreen else Color.White)
+                }
+            }
             if (s.source != "spotify") IconButton(onClick = timer) { Icon(Icons.Rounded.Timer, "Timer tidur", tint = if (sleepTimerLabel(s) != null) NadaGreen else Color.White) }
             IconButton(onClick = queue) { Icon(Icons.AutoMirrored.Rounded.QueueMusic, "Buka antrean") }
         }
@@ -401,6 +449,7 @@ internal fun TrackRow(track: Track, state: MusicState, play: () -> Unit, options
             Text(track.artist, color = NadaMuted, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (state.liked.any { it.id == track.id }) Icon(Icons.Rounded.Favorite, null, tint = NadaGreen, modifier = Modifier.size(16.dp))
+        if (state.offline.tracks.any { it.id == track.id && it.ready }) Icon(Icons.Rounded.DownloadDone, "Tersedia offline", tint = NadaGreen, modifier = Modifier.padding(start = 6.dp).size(16.dp))
         if (showOptions) IconButton(onClick = options) { Icon(Icons.Rounded.MoreVert, "Opsi ${track.title}", tint = NadaMuted) }
     }
 }

@@ -2,6 +2,8 @@ package app.nada.player.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -37,8 +39,8 @@ fun LibraryScreen(state: MusicState, modifier: Modifier, open: (String) -> Unit,
             IconButton(onClick = { searching = !searching; if (!searching) query = "" }) { Icon(Icons.Rounded.Search, "Cari koleksi") }
             IconButton(onClick = create) { Icon(Icons.Rounded.Add, "Buat playlist") }
         } }
-        item { Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("Semua", "Playlist", "Disukai").forEachIndexed { index, label -> FilterChip(filter == index, { filter = index }, label = { Text(label) }, shape = RoundedCornerShape(50)) }
+        item { Row(Modifier.padding(horizontal = 16.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("Semua", "Playlist", "Disukai", "Unduhan").forEachIndexed { index, label -> FilterChip(filter == index, { filter = index }, label = { Text(label) }, shape = RoundedCornerShape(50)) }
         } }
         if (searching) item { OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), singleLine = true, placeholder = { Text("Cari di koleksimu") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }) }
         item { Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -46,7 +48,12 @@ fun LibraryScreen(state: MusicState, modifier: Modifier, open: (String) -> Unit,
             Spacer(Modifier.weight(1f))
             IconButton(onClick = { grid = !grid }) { Icon(if (grid) Icons.Rounded.ViewList else Icons.Rounded.GridView, if (grid) "Tampilkan daftar" else "Tampilkan grid") }
         } }
-        if (filter != 1 && "Lagu yang disukai".contains(query, true)) item {
+        if ((filter == 0 || filter == 3) && "Unduhan".contains(query, true)) item {
+            val ready = state.offline.tracks.count { it.ready }
+            val pending = state.offline.tracks.count { !it.ready }
+            CollectionRow("Unduhan", "$ready lagu siap offline" + if (pending > 0) " · $pending lainnya" else "", Icons.Rounded.DownloadForOffline, Color(0xFF286151)) { open("downloads") }
+        }
+        if ((filter == 0 || filter == 2) && "Lagu yang disukai".contains(query, true)) item {
             CollectionRow("Lagu yang disukai", "Playlist · ${state.liked.size} lagu", Icons.Rounded.Favorite, Color(0xFF6454B6)) { open("liked") }
         }
         if (filter == 0 && state.history.isNotEmpty() && "Baru diputar".contains(query, true)) item {
@@ -55,7 +62,7 @@ fun LibraryScreen(state: MusicState, modifier: Modifier, open: (String) -> Unit,
         if (filter == 2 && !"Lagu yang disukai".contains(query, true)) item {
             Text("Tidak ada koleksi yang cocok. Coba nama lain.", Modifier.padding(24.dp), color = NadaMuted)
         }
-        if (filter != 2) {
+        if (filter == 0 || filter == 1) {
             if (grid) items(playlists.chunked(2)) { pair -> Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 pair.forEach { playlist -> Column(Modifier.weight(1f).clickable { open("playlist:${playlist.id}") }) {
                     CollectionArtwork(playlist.tracks, false, Modifier.fillMaxWidth().aspectRatio(1f))

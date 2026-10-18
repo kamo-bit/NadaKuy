@@ -19,10 +19,11 @@ object QueueCommands {
     const val TRACK = "track"
 }
 
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 fun Track.toMediaItem(): MediaItem {
     check(playableInNada) { "Unsupported playback identity" }
     val uri = if (source == "youtube") "nada-youtube://watch/${id.removePrefix("youtube:")}" else streamUrl
-    return MediaItem.Builder().setMediaId(id).setUri(uri)
+    return MediaItem.Builder().setMediaId(id).setUri(uri).setCustomCacheKey(id)
     .setMediaMetadata(MediaMetadata.Builder().setTitle(title).setArtist(artist)
         .setArtworkUri(artwork.takeIf(String::isNotBlank)?.toUri())
         .setExtras(Bundle().apply { putInt("duration", duration); putString("genre", genre); putString("permalink", permalink); putString("source", source) }).build()).build()

@@ -1,0 +1,33 @@
+# Local build and IDE state
+.gradle/
+.kotlin/
+.idea/
+*.iml
+**/build/
+local.properties
+.externalNativeBuild/
+.cxx/
+captures/
+.DS_Store
+Thumbs.db
+
+# Downloaded dependencies and installable packages
+app/libs/*.aar
+app/libs/*.download
+*.apk
+*.aab
+
+# Signing material and private configuration
+*.jks
+*.keystore
+keystore.properties
+.env
+.env.*
+!*.example
+
+# Local investigations and recordings
+reference/
+releases/
+private/
+*.log
+*.hprof

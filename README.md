@@ -2,6 +2,14 @@
 
 Pemutar musik Android berbasis Kotlin dan Jetpack Compose. NadaKuy menyediakan pencarian YouTube Music, YouTube, dan Audius tanpa akun aplikasi, serta koneksi opsional ke Spotify Premium.
 
+## Unduh APK
+
+**[Unduh NadaKuy 1.3.4 untuk Android](https://github.com/kamo-bit/NadaKuy/releases/download/v1.3.4/NadaKuy-1.3.4.apk)**
+
+Mendukung Android 8.0/API 26 atau lebih baru. Unduh APK melalui browser HP, buka berkasnya, lalu ikuti proses pemasangan Android. Jika diminta, izinkan pemasangan dari browser atau pengelola berkas yang digunakan.
+
+APK ini merupakan build debug untuk pengujian, dengan sertifikat lokal yang sama seperti APK NadaKuy sebelumnya. [Halaman rilis](https://github.com/kamo-bit/NadaKuy/releases/latest) menyediakan catatan versi dan checksum SHA-256.
+
 ## Fitur
 
 - Pencarian lagu dan artis, dengan peringkat yang mengutamakan kecocokan judul, artis, dan rekaman asli.
@@ -82,4 +90,4 @@ Lihat [panduan kontribusi](CONTRIBUTING.md) untuk alur kerja dan pengujian, sert
 
 Versi dependensi ditentukan di `gradle/libs.versions.toml` dan `app/build.gradle.kts`. SDK Spotify diambil dari rilis resmi dengan verifikasi SHA-256 dan tidak disimpan dalam Git. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) mencatat sumber dan lisensi komponen utama.
 
-Repository ini digunakan untuk kolaborasi privat. NadaKuy tidak berafiliasi dengan Spotify, YouTube, atau Audius; nama dan logo layanan tetap milik pemiliknya.
+NadaKuy tidak berafiliasi dengan Spotify, YouTube, atau Audius; nama dan logo layanan tetap milik pemiliknya.

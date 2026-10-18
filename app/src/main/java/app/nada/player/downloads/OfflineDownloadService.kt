@@ -9,6 +9,7 @@ import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadService
 import androidx.media3.exoplayer.scheduler.PlatformScheduler
 import androidx.media3.exoplayer.scheduler.Scheduler
+import androidx.media3.exoplayer.scheduler.Requirements
 import app.nada.player.MainActivity
 import app.nada.player.R
 
@@ -23,7 +24,11 @@ class OfflineDownloadService : DownloadService(4101, 1000L, "offline-downloads",
         val activity = PendingIntent.getActivity(this, 4101, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         return NotificationCompat.Builder(this, "offline-downloads")
             .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle(if (notMetRequirements != 0) "Menunggu koneksi internet" else "Mengunduh musik")
+            .setContentTitle(when {
+                notMetRequirements and Requirements.NETWORK_UNMETERED != 0 -> "Menunggu jaringan tanpa kuota"
+                notMetRequirements != 0 -> "Menunggu koneksi internet"
+                else -> "Mengunduh musik"
+            })
             .setContentText(if (active.size == 1) "1 lagu · Tersimpan di NadaKuy" else "${active.size} lagu · Tersimpan di NadaKuy")
             .setContentIntent(activity).setOngoing(true).setOnlyAlertOnce(true)
             .setProgress(100, percent ?: 0, percent == null).setSilent(true).build()

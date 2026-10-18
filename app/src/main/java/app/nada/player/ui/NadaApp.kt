@@ -55,6 +55,7 @@ import app.nada.player.MusicState
 import app.nada.player.MusicViewModel
 import app.nada.player.data.Track
 import app.nada.player.downloads.OfflineStatus
+import app.nada.player.downloads.planPlaylistDownloads
 import coil3.compose.AsyncImage
 
 private data class Genre(val title: String, val query: String, val color: Color)
@@ -83,22 +84,19 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
     var showSleepTimer by remember { mutableStateOf(false) }
     var showSpotify by rememberSaveable { mutableStateOf(false) }
     var showSources by rememberSaveable { mutableStateOf(false) }
+    var batchTracks by remember { mutableStateOf<List<Track>?>(null) }
     val artworkColor by rememberArtworkColor(s.current)
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
-    var pendingDownload by remember { mutableStateOf<Track?>(null) }
-    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        pendingDownload?.let(model::download)
-        pendingDownload = null
-    }
-    fun startDownload(track: Track) {
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    fun requestDownloadNotifications() {
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            pendingDownload = track
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        } else model.download(track)
+        }
     }
+    fun startDownload(track: Track) { requestDownloadNotifications(); model.download(track) }
     fun showDownloads() { fullPlayer = false; collection = "downloads" }
-    LaunchedEffect(s.source) { if (collection != "downloads") collection = null; fullPlayer = false; showQueue = false; showSleepTimer = false }
+    LaunchedEffect(s.source) { if (collection != "downloads" && collection != "settings") collection = null; fullPlayer = false; showQueue = false; showSleepTimer = false }
     LaunchedEffect(showQueue) { if (showQueue) model.refreshSpotifyQueue() }
     LaunchedEffect(s.message) { s.message?.let { snackbar.showSnackbar(it); model.dismissMessage() } }
     LaunchedEffect(collection) {
@@ -141,6 +139,7 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
                 }) { padding ->
                 val content = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)
                 when {
+                    collection == "settings" -> SettingsScreen(s, model, content) { collection = null }
                     collection == "downloads" -> DownloadsScreen(s, model, content, { collection = null }, { collection = null; tab = 1 })
                     collection != null -> {
                         val key = collection!!
@@ -151,11 +150,12 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
                             tracks, s, model, content, genre != null && s.genreLoading, if (genre != null) s.genreError else null,
                             { genre?.let { model.loadGenre(it.query) } }, { collection = null }, { options = it },
                             if (playlist != null) ({ deleting = playlist.id }) else null,
-                            key, if (playlist != null) ({ playlistName = playlist.name; renaming = playlist.id }) else null)
+                            key, if (playlist != null) ({ playlistName = playlist.name; renaming = playlist.id }) else null,
+                            { batchTracks = tracks }, ::showDownloads)
                     }
                     tab == 0 -> HomeScreen(s, model, content, { options = it }, ::openGenre, { collection = "history" }, { collection = "liked" }, { showInfo = true }, { showSpotify = true })
                     tab == 1 -> SearchScreen(s, model, content, { options = it }, ::openGenre)
-                    else -> LibraryScreen(s, content, { collection = it }, { playlistName = ""; creating = true })
+                    else -> LibraryScreen(s, content, { collection = it }, { playlistName = ""; creating = true }, { collection = "settings" })
                 }
             }
         }
@@ -210,6 +210,20 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
     if (showSleepTimer) SleepTimerSheet(s, model) { showSleepTimer = false }
     if (showSpotify) SpotifyConnectionSheet(s, model) { showSpotify = false }
     if (showSources) MusicSourceSheet(s, model, { showSpotify = true }) { showSources = false }
+    batchTracks?.let { tracks ->
+        val plan = planPlaylistDownloads(tracks, s.offline.tracks)
+        AlertDialog(onDismissRequest = { batchTracks = null }, title = { Text("Unduh seluruh koleksi ini?") },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("${plan.pending.size} lagu akan ditambahkan. ${plan.ready} sudah offline dan ${plan.queued} sedang diproses.")
+                if (plan.unsupported > 0) Text("${plan.unsupported} lagu tidak mendukung unduhan di NadaKuy dan akan dilewati.", color = NadaMuted)
+                Text(if (s.offline.unmeteredOnly) "Unduhan menunggu jaringan tanpa kuota. Progres tersedia di Koleksi → Unduhan."
+                    else "Unduhan memakai koneksi internet dan ruang perangkat. Progres tersedia di Koleksi → Unduhan.", color = NadaMuted)
+            } },
+            confirmButton = { TextButton(enabled = plan.pending.isNotEmpty() && !s.batchDownloading, onClick = {
+                batchTracks = null; requestDownloadNotifications(); model.downloadPlaylist(tracks)
+            }) { Text("Unduh ${plan.pending.size} lagu") } },
+            dismissButton = { TextButton(onClick = { batchTracks = null }) { Text("Batal") } })
+    }
     if (addTrack != null && !creating) AlertDialog(onDismissRequest = { addTrack = null }, title = { Text("Tambahkan ke playlist") },
         text = { Column(Modifier.verticalScroll(rememberScrollState())) {
             s.playlists.forEach { playlist -> TextButton(onClick = { model.addToPlaylist(playlist.id, addTrack!!); addTrack = null }, modifier = Modifier.fillMaxWidth()) { Text(playlist.name, Modifier.weight(1f)) } }
@@ -230,7 +244,8 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
         dismissButton = { TextButton(onClick = { renaming = null }) { Text("Batal") } })
     if (showInfo) AlertDialog(onDismissRequest = { showInfo = false }, title = { Text("NadaKuy. Musik untukmu.") },
         text = { Text("Cari musik dari YouTube Music, YouTube, atau Audius tanpa akun NadaKuy. Spotify tetap tersedia dengan akun Premium dan aplikasi resminya.\n\nKoleksi dan riwayat NadaKuy tersimpan di perangkat ini. Katalog dan ketersediaan tiap sumber berbeda; koneksi internet diperlukan.") },
-        confirmButton = { TextButton(onClick = { showInfo = false }) { Text("Mengerti") } })
+        confirmButton = { TextButton(onClick = { showInfo = false }) { Text("Mengerti") } },
+        dismissButton = { TextButton(onClick = { showInfo = false; collection = "settings" }) { Text("Pengaturan") } })
 }
 
 @Composable
@@ -324,7 +339,8 @@ private fun SearchScreen(s: MusicState, model: MusicViewModel, modifier: Modifie
 
 @Composable
 private fun CollectionScreen(title: String, tracks: List<Track>, s: MusicState, model: MusicViewModel, modifier: Modifier,
-    loading: Boolean, error: String?, retry: () -> Unit, back: () -> Unit, options: (Track) -> Unit, delete: (() -> Unit)?, kind: String, rename: (() -> Unit)?) {
+    loading: Boolean, error: String?, retry: () -> Unit, back: () -> Unit, options: (Track) -> Unit, delete: (() -> Unit)?, kind: String,
+    rename: (() -> Unit)?, download: () -> Unit, downloads: () -> Unit) {
     var query by rememberSaveable(title) { mutableStateOf("") }
     var byName by rememberSaveable(title) { mutableStateOf(false) }
     val matching = tracks.filter { it.title.contains(query, true) || it.artist.contains(query, true) }
@@ -345,6 +361,28 @@ private fun CollectionScreen(title: String, tracks: List<Track>, s: MusicState, 
                 FilledIconButton(enabled = tracks.isNotEmpty(), onClick = { model.play(tracks) }, modifier = Modifier.size(58.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = NadaGreen, contentColor = Color.Black)) { Icon(Icons.Rounded.PlayArrow, "Putar semua lagu", Modifier.size(34.dp)) }
             }
         } }
+        if ((kind.startsWith("playlist:") || kind == "liked") && tracks.isNotEmpty()) item {
+            val plan = planPlaylistDownloads(tracks, s.offline.tracks)
+            Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedButton(onClick = if (plan.pending.isEmpty()) downloads else download,
+                    enabled = !s.batchDownloading && s.offline.loaded && (plan.pending.isNotEmpty() || plan.ready + plan.queued > 0),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                    if (s.batchDownloading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = NadaGreen)
+                    else Icon(if (plan.ready == tracks.distinctBy(Track::id).size) Icons.Rounded.DownloadDone else Icons.Rounded.Download, null, Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(when {
+                        s.batchDownloading -> "Menambahkan unduhan…"
+                        plan.pending.isNotEmpty() -> "Unduh semua"
+                        plan.queued > 0 -> "Lihat progres unduhan"
+                        plan.ready > 0 -> "Lihat unduhan"
+                        else -> "Unduhan tidak tersedia"
+                    })
+                }
+                Text("${plan.ready} dari ${tracks.distinctBy(Track::id).size} lagu siap offline" +
+                    if (plan.unsupported > 0) " · ${plan.unsupported} tidak mendukung unduhan" else "",
+                    color = NadaMuted, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
         if (tracks.isNotEmpty()) item { Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(query, { query = it }, Modifier.weight(1f), singleLine = true, placeholder = { Text("Cari di playlist ini") }, leadingIcon = { Icon(Icons.Rounded.Search, null) })
             IconButton(onClick = { byName = !byName }) { Icon(Icons.Rounded.SortByAlpha, if (byName) "Urutkan semula" else "Urutkan menurut nama", tint = if (byName) NadaGreen else NadaMuted) }

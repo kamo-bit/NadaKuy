@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.ComponentName
 import android.os.Bundle
 import android.os.SystemClock
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -21,6 +22,8 @@ import androidx.media3.session.SessionResult
 import app.nada.player.data.LocalPlaylist
 import app.nada.player.data.MusicRepository
 import app.nada.player.data.Track
+import app.nada.player.data.CollectionBackup
+import app.nada.player.data.LibraryBackup
 import app.nada.player.downloads.OfflineLibrary
 import app.nada.player.downloads.OfflineState
 import app.nada.player.playback.PlaybackService
@@ -37,6 +40,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import app.nada.player.updates.AppUpdates
+import app.nada.player.updates.UpdateState
 import app.nada.player.spotify.SpotifyAuth
 import app.nada.player.spotify.SpotifyApi
 import app.nada.player.spotify.SpotifyRemote
@@ -57,12 +64,21 @@ data class MusicState(
     val queueHasCurrent: Boolean = true,
     val youtubeVideos: Boolean = false,
     val offline: OfflineState = OfflineState(),
+    val batchDownloading: Boolean = false,
     val canSeek: Boolean = true, val canNext: Boolean = true, val canPrevious: Boolean = true, val canShuffle: Boolean = true, val canRepeat: Boolean = true,
 )
+
+data class CollectionTransferState(val busy: String? = null, val message: String? = null,
+    val error: String? = null, val pending: CollectionBackup? = null)
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = MusicRepository(application)
+    val installedVersion: String = application.packageManager.getPackageInfo(application.packageName, 0).versionName ?: "0.0.0"
+    var transferState by mutableStateOf(CollectionTransferState())
+        private set
+    var updateState by mutableStateOf(UpdateState())
+        private set
     private val offlineLibrary = OfflineLibrary.get(application)
     private val spotifyAuth = SpotifyAuth(application)
     private val spotifyApi = SpotifyApi(spotifyAuth)
@@ -198,6 +214,90 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             offlineLibrary.add(track)
             state = state.copy(message = "Lagu ditambahkan ke Unduhan")
         } catch (error: Exception) { state = state.copy(message = "Unduhan belum bisa dimulai. Coba lagi saat aplikasi terbuka.") }
+    }
+    fun downloadPlaylist(tracks: List<Track>) {
+        if (state.batchDownloading || tracks.isEmpty()) return
+        state = state.copy(batchDownloading = true)
+        viewModelScope.launch {
+            try {
+                val result = offlineLibrary.addAll(tracks)
+                val parts = buildList {
+                    if (result.added > 0) add("${result.added} lagu ditambahkan ke Unduhan")
+                    if (result.ready > 0) add("${result.ready} sudah offline")
+                    if (result.queued > 0) add("${result.queued} sedang diproses")
+                    if (result.unsupported > 0) add("${result.unsupported} tidak mendukung unduhan")
+                    if (result.failed > 0) add("${result.failed} belum bisa ditambahkan; coba lagi")
+                }
+                state = state.copy(message = parts.joinToString(" · "))
+            } catch (error: CancellationException) { throw error }
+            catch (error: Exception) { state = state.copy(message = "Unduhan playlist belum bisa dimulai. Buka Unduhan, lalu coba lagi.") }
+            finally { state = state.copy(batchDownloading = false) }
+        }
+    }
+    fun setUnmeteredDownloads(enabled: Boolean) = changeDownload { offlineLibrary.setUnmeteredOnly(enabled) }
+
+    fun exportCollection(uri: Uri) {
+        if (transferState.busy != null) return
+        val snapshot = repository.snapshot()
+        transferState = CollectionTransferState(busy = "Menyimpan backup…")
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val bytes = LibraryBackup.encode(snapshot)
+                    val resolver = getApplication<Application>().contentResolver
+                    requireNotNull(resolver.openOutputStream(uri, "wt")) { "File belum bisa dibuka untuk menyimpan backup." }
+                        .use { it.write(bytes); it.flush() }
+                }
+                transferState = CollectionTransferState(message = "Backup berhasil disimpan. Simpan file ini untuk memindahkan koleksimu.")
+            } catch (error: CancellationException) { transferState = CollectionTransferState(); throw error }
+            catch (error: Exception) { transferState = CollectionTransferState(error = "Backup belum tersimpan. Periksa ruang kosong dan pilih lokasi penyimpanan lagi.") }
+        }
+    }
+
+    fun readCollectionBackup(uri: Uri) {
+        if (transferState.busy != null) return
+        transferState = CollectionTransferState(busy = "Membaca backup…")
+        viewModelScope.launch {
+            try {
+                val backup = withContext(Dispatchers.IO) {
+                    val resolver = getApplication<Application>().contentResolver
+                    requireNotNull(resolver.openInputStream(uri)) { "File backup belum bisa dibuka." }.use(LibraryBackup::read)
+                }
+                transferState = CollectionTransferState(pending = backup)
+            } catch (error: CancellationException) { transferState = CollectionTransferState(); throw error }
+            catch (error: Exception) {
+                transferState = CollectionTransferState(error = if (error is IllegalArgumentException) error.message?.takeIf { it.isNotBlank() }
+                    ?: "File backup tidak valid. Pilih file backup NadaKuy yang lain."
+                    else "File backup belum bisa dibaca. Unduh file ke perangkat atau pilih file lain.")
+            }
+        }
+    }
+
+    fun cancelCollectionRestore() { transferState = CollectionTransferState() }
+    fun restoreCollection() {
+        val backup = transferState.pending ?: return
+        transferState = CollectionTransferState(busy = "Memulihkan koleksi…")
+        try {
+            repository.restore(backup)
+            syncLibrary()
+            state = state.copy(recentSearches = repository.searchHistory)
+            transferState = CollectionTransferState(message = "Koleksi berhasil dipulihkan. Data lama tetap tersimpan dan duplikat dilewati.")
+        } catch (error: Exception) {
+            transferState = CollectionTransferState(error = "Koleksi belum berhasil disimpan. Periksa ruang kosong dan coba lagi.")
+        }
+    }
+
+    fun checkForUpdates() {
+        if (updateState.checking) return
+        updateState = UpdateState(checking = true)
+        viewModelScope.launch {
+            try { updateState = AppUpdates.result(AppUpdates.latest(), installedVersion) }
+            catch (error: CancellationException) { updateState = UpdateState(); throw error }
+            catch (error: Exception) {
+                updateState = UpdateState(error = if (error is IllegalStateException) error.message
+                    else "Tidak bisa memeriksa pembaruan. Periksa internet, lalu coba lagi.")
+            }
+        }
     }
     fun pauseDownload(id: String) = changeDownload { offlineLibrary.pause(id) }
     fun resumeDownload(id: String) = changeDownload { offlineLibrary.resume(id) }

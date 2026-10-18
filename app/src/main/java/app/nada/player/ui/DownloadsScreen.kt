@@ -76,7 +76,11 @@ fun DownloadsScreen(state: MusicState, model: MusicViewModel, modifier: Modifier
                         entry.status == OfflineStatus.PAUSED -> "Dijeda · ${downloadSize(entry.bytes)}"
                         entry.status == OfflineStatus.FAILED -> "Gagal · Periksa internet atau ruang kosong, lalu coba lagi"
                         entry.status == OfflineStatus.REMOVING -> "Menghapus unduhan…"
-                        entry.status == OfflineStatus.QUEUED -> if (entry.waitingForNetwork) "Menunggu internet" else "Menunggu giliran"
+                        entry.status == OfflineStatus.QUEUED -> when {
+                            entry.waitingForUnmetered -> "Menunggu jaringan tanpa kuota"
+                            entry.waitingForNetwork -> "Menunggu internet"
+                            else -> "Menunggu giliran"
+                        }
                         else -> entry.percent?.let { "${it.toInt()}% · ${downloadSize(entry.bytes)}" } ?: downloadSize(entry.bytes)
                     }
                     Text(label, Modifier.padding(top = 3.dp), color = if (entry.ready) NadaGreen else NadaMuted, style = MaterialTheme.typography.labelMedium)

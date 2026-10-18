@@ -81,4 +81,42 @@ class LibraryPersistenceTest {
         reopened.clearSearchHistory()
         assertTrue(MusicRepository(context).searchHistory.isEmpty())
     }
+
+    @Test fun backupRestoresIntoAnEmptyLibraryAndRepeatedMergePreservesLocalChanges() {
+        val repository = MusicRepository(context)
+        repository.toggleLike(song)
+        repository.rememberPlayed(song)
+        repository.rememberSearch("  Musik Indonesia  ")
+        val playlist = repository.createPlaylist("Perjalanan")
+        repository.addToPlaylist(playlist.id, song)
+        val bytes = LibraryBackup.encode(repository.snapshot())
+        val backupFile = java.io.File.createTempFile("nadakuy-backup-", ".json", base.cacheDir)
+        try {
+            backupFile.writeBytes(bytes)
+            base.getSharedPreferences(preferenceName, 0).edit().clear().commit()
+            val empty = MusicRepository(context)
+            assertTrue(empty.playlists.isEmpty())
+            val backup = backupFile.inputStream().use(LibraryBackup::read)
+            empty.restore(backup)
+            assertEquals(repository.snapshot(), MusicRepository(context).snapshot())
+            empty.renamePlaylist(playlist.id, "Nama baru")
+            val second = song.copy(id = "another42")
+            empty.addToPlaylist(playlist.id, second)
+            empty.restore(backup)
+            empty.restore(backup)
+            val restored = MusicRepository(context)
+            assertEquals("Nama baru", restored.playlists.single().name)
+            assertEquals(listOf(song, second), restored.playlists.single().tracks)
+            assertEquals(listOf(song), restored.liked)
+            assertEquals(listOf("Musik Indonesia"), restored.searchHistory)
+        } finally { backupFile.delete() }
+    }
+
+    @Test fun invalidBackupDoesNotModifyAnyPreferences() {
+        val repository = MusicRepository(context)
+        repository.toggleLike(song)
+        val before = base.getSharedPreferences(preferenceName, 0).all.toMap()
+        assertThrows(Exception::class.java) { LibraryBackup.decode("{\"version\":999}".toByteArray()) }
+        assertEquals(before, base.getSharedPreferences(preferenceName, 0).all)
+    }
 }

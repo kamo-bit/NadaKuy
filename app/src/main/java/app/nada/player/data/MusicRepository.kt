@@ -139,6 +139,25 @@ class MusicRepository(context: Context) {
 
     fun deletePlaylist(id: String) { playlists = playlists.filterNot { it.id == id }; savePlaylists() }
 
+    fun snapshot() = LibrarySnapshot(liked.toList(), history.toList(), playlists.toList(), searchHistory)
+
+    /** One editor commits the entire merge before the in-memory collection is published. */
+    @android.annotation.SuppressLint("UseKtx") // The commit result is required to report a failed disk write.
+    fun restore(backup: CollectionBackup) {
+        val merged = LibraryBackup.merge(snapshot(), backup.collection)
+        val playlistData = JSONArray().also { array -> merged.playlists.forEach { playlist ->
+            array.put(JSONObject().put("id", playlist.id).put("name", playlist.name).put("tracks", encodeTracks(playlist.tracks)))
+        } }
+        check(preferences.edit().putString("liked", encodeTracks(merged.liked).toString())
+            .putString("history", encodeTracks(merged.history).toString()).putString("playlists", playlistData.toString())
+            .putString("searches", JSONArray(merged.searches).toString()).commit()) {
+            "Backup belum tersimpan. Periksa ruang kosong perangkat, lalu coba lagi."
+        }
+        liked = merged.liked
+        history = merged.history
+        playlists = merged.playlists
+    }
+
     private fun savePlaylists() {
         val array = JSONArray()
         playlists.forEach { array.put(JSONObject().put("id", it.id).put("name", it.name).put("tracks", encodeTracks(it.tracks))) }

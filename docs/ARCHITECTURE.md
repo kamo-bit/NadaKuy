@@ -24,9 +24,17 @@ Pemutar memakai cache baca terlebih dahulu, dengan penulisan cache dimatikan unt
 
 Audio berada di `noBackupFilesDir`; indeks Media3 dikecualikan dari backup dan transfer agar status selesai tidak dipulihkan tanpa media. Playlist dan lagu disukai terpisah dari indeks ini.
 
+`planPlaylistDownloads` mengklasifikasikan satu snapshot playlist berdasarkan identitas lagu. `OfflineLibrary.addAll` menunggu indeks siap, membaca status terbaru, dan mengirim request untuk lagu baru, dijeda, atau gagal. Lagu selesai, aktif, dan dalam penghapusan dilewati. Syarat jaringan tanpa kuota disimpan oleh pemilik unduhan dan diterapkan kembali ketika proses dibuat.
+
 ## Data lokal
 
 Playlist, lagu disukai, riwayat, dan pilihan sumber disimpan dalam preferensi perangkat. Sesi Spotify disimpan terenkripsi dengan kunci Android Keystore di direktori yang dikecualikan dari backup. Tidak ada sinkronisasi koleksi antarpiranti.
+
+`LibraryBackup` memiliki format JSON portabel berversi, validasi input terbatas, dan aturan penggabungan koleksi. Snapshot hanya mencakup playlist, favorit, riwayat, dan pencarian. `MusicRepository.restore` menyimpan keempat bagian dalam satu editor sebelum memublikasikan state baru. Pemilih dokumen Android memberi akses hanya ke file yang dipilih pengguna; aplikasi tidak meminta akses seluruh penyimpanan.
+
+## Pemeriksaan pembaruan
+
+`AppUpdates` mengambil rilis stabil terbaru dari endpoint publik GitHub untuk `kamo-bit/NadaKuy`. Versi dibandingkan sebagai tiga komponen bilangan. Tautan rilis dan APK harus tepat berasal dari repository tersebut; draft, prerelease, dan versi tak dikenal tidak ditawarkan. UI mengambil versi terpasang dari PackageManager dan melakukan pemeriksaan hanya atas permintaan pengguna. Pengunduhan dibuka melalui browser, sementara Android tetap menangani persetujuan pemasangan dan pemeriksaan sertifikat APK.
 
 ## Pengujian
 

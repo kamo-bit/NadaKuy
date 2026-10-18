@@ -1,6 +1,7 @@
 package app.nada.player.downloads
 
 import android.content.Context
+import androidx.core.content.edit
 import androidx.media3.common.MimeTypes
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.cache.CacheDataSource
@@ -25,6 +26,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.Executor
@@ -34,12 +38,15 @@ enum class OfflineStatus { QUEUED, DOWNLOADING, PAUSED, COMPLETE, FAILED, REMOVI
 data class OfflineTrack(
     val id: String, val track: Track?, val status: OfflineStatus,
     val bytes: Long, val totalBytes: Long, val percent: Float?,
-    val waitingForNetwork: Boolean = false, val missingMedia: Boolean = false,
+    val waitingForNetwork: Boolean = false, val missingMedia: Boolean = false, val waitingForUnmetered: Boolean = false,
 ) {
     val ready: Boolean get() = status == OfflineStatus.COMPLETE && track != null
 }
 
-data class OfflineState(val tracks: List<OfflineTrack> = emptyList(), val loaded: Boolean = false, val error: String? = null)
+data class OfflineState(val tracks: List<OfflineTrack> = emptyList(), val loaded: Boolean = false, val error: String? = null,
+    val unmeteredOnly: Boolean = false)
+
+data class PlaylistDownloadResult(val added: Int, val ready: Int, val queued: Int, val unsupported: Int, val failed: Int)
 
 /** Application-scoped owner of the persistent index and non-evicting audio cache. */
 @androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
@@ -47,9 +54,10 @@ class OfflineLibrary private constructor(private val context: Context) {
     private val database = StandaloneDatabaseProvider(context)
     internal val cache = SimpleCache(File(context.noBackupFilesDir, "offline-audio"), NoOpCacheEvictor(), database)
     private val upstream = audioUpstream(context)
+    private val preferences = context.getSharedPreferences("nada_downloads", Context.MODE_PRIVATE)
     internal val manager = DownloadManager(context, database, cache, upstream, Executor { it.run() }).apply {
         maxParallelDownloads = 2
-        requirements = Requirements(Requirements.NETWORK)
+        requirements = downloadRequirements(preferences.getBoolean("unmetered_only", false))
     }
     private val changes = Channel<Unit>(Channel.CONFLATED)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -76,7 +84,8 @@ class OfflineLibrary private constructor(private val context: Context) {
                     try {
                         val waiting = manager.notMetRequirements != 0
                         val records = withContext(Dispatchers.IO) { readIndex(waiting) }
-                        mutableState.value = OfflineState(records, loaded = true)
+                        mutableState.value = OfflineState(records, loaded = true,
+                            unmeteredOnly = manager.requirements.isUnmeteredNetworkRequired)
                     } catch (error: CancellationException) { throw error }
                     catch (error: Exception) {
                         mutableState.value = mutableState.value.copy(loaded = true, error = "Unduhan belum bisa dibaca. Coba muat ulang.")
@@ -101,6 +110,10 @@ class OfflineLibrary private constructor(private val context: Context) {
         require(track.playableInNada) { "Sumber ini tidak menyediakan unduhan di NadaKuy." }
         val existing = state.value.tracks.firstOrNull { it.id == track.id }
         if (existing?.status in listOf(OfflineStatus.COMPLETE, OfflineStatus.DOWNLOADING, OfflineStatus.QUEUED, OfflineStatus.REMOVING)) return
+        submit(track)
+    }
+
+    private fun submit(track: Track) {
         val media = track.toMediaItem().localConfiguration!!
         val request = DownloadRequest.Builder(track.id, media.uri)
             .setCustomCacheKey(track.id)
@@ -108,6 +121,28 @@ class OfflineLibrary private constructor(private val context: Context) {
             .setData(track.toJson().toString().toByteArray(Charsets.UTF_8)).build()
         DownloadService.sendAddDownload(context, OfflineDownloadService::class.java, request, true)
     }
+
+    suspend fun addAll(tracks: List<Track>): PlaylistDownloadResult {
+        withTimeout(15_000) { state.first { it.loaded && it.error == null } }
+        val saved = withContext(Dispatchers.IO) { readIndex(manager.notMetRequirements != 0) }
+        val plan = planPlaylistDownloads(tracks, saved)
+        var added = 0
+        var failed = 0
+        plan.pending.forEachIndexed { index, track ->
+            try { submit(track); added++ } catch (error: Exception) { failed++ }
+            if (index % 16 == 15) yield()
+        }
+        return PlaylistDownloadResult(added, plan.ready, plan.queued, plan.unsupported, failed)
+    }
+
+    fun setUnmeteredOnly(enabled: Boolean) {
+        manager.requirements = downloadRequirements(enabled)
+        preferences.edit { putBoolean("unmetered_only", enabled) }
+        refresh()
+    }
+
+    private fun downloadRequirements(unmetered: Boolean) = Requirements(
+        Requirements.NETWORK or if (unmetered) Requirements.NETWORK_UNMETERED else 0)
 
     fun pause(id: String) = DownloadService.sendSetStopReason(context, OfflineDownloadService::class.java, id, USER_PAUSED, true)
     fun resume(id: String) = DownloadService.sendSetStopReason(context, OfflineDownloadService::class.java, id, Download.STOP_REASON_NONE, true)
@@ -134,7 +169,8 @@ class OfflineLibrary private constructor(private val context: Context) {
                     else -> OfflineStatus.QUEUED
                 }
                 records += download.startTimeMs to OfflineTrack(request.id, track, status, download.bytesDownloaded, length,
-                    download.percentDownloaded.takeIf { it >= 0 }?.coerceIn(0f, 100f), waiting, missing)
+                    download.percentDownloaded.takeIf { it >= 0 }?.coerceIn(0f, 100f), waiting, missing,
+                    manager.notMetRequirements and Requirements.NETWORK_UNMETERED != 0)
             }
         }
         return records.sortedByDescending { it.first }.map { it.second }

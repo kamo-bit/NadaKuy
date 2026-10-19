@@ -41,20 +41,26 @@ class LyricsRepository(context: Context) {
 
     suspend fun load(track: Track, refresh: Boolean = false): Pair<LyricsDocument?, Boolean> = withContext(Dispatchers.IO) {
         val file = cacheFile(track)
+        val preferredSourceId = LyricsTiming.preferredSourceId(track)
+        var cachedMatch: LyricsMatching.Match? = null
         if (!refresh && file.isFile && file.length() <= MAX_BYTES) {
             val cached = runCatching { file.inputStream().use { JsonParser.parseString(it.readBounded(MAX_BYTES).toString(Charsets.UTF_8)) } }
                 .getOrNull()?.let { LyricsMatching.choose(listOf(it), track) }
             if (cached != null) {
+                cachedMatch = cached
                 file.setLastModified(System.currentTimeMillis())
                 currentCoroutineContext().ensureActive()
-                return@withContext JapaneseRomaji.convert(cached.document) to true
+                if (preferredSourceId == null || cached.document.id == preferredSourceId) {
+                    return@withContext JapaneseRomaji.convert(cached.document) to true
+                }
             }
         }
         val candidates = mutableListOf<JsonElement>()
+        cachedMatch?.source?.let { candidates += it }
         var failure: Exception? = null
-        suspend fun collect(endpoint: String, title: String = LyricsMatching.title(track)) {
+        suspend fun collect(endpoint: String, title: String = LyricsMatching.title(track), sourceId: Long? = null) {
             try {
-                request(endpoint, track, title)?.let { response ->
+                request(endpoint, track, title, sourceId)?.let { response ->
                     val json = JsonParser.parseString(response)
                     if (json.isJsonArray) candidates += json.asJsonArray.toList().take(50) else candidates += json
                 }
@@ -63,7 +69,8 @@ class LyricsRepository(context: Context) {
         }
         fun foundTimed(): Boolean = LyricsMatching.choose(candidates, track)?.document?.let { it.synced || it.instrumental } == true
         try { withTimeout(25_000) {
-            collect("get")
+            preferredSourceId?.let { collect("get", sourceId = it) }
+            if (!foundTimed()) collect("get")
             if (!foundTimed()) collect("search")
             if (!foundTimed()) JapaneseRomaji.romanize(LyricsMatching.title(track))?.let { alternate ->
                 collect("get", alternate)
@@ -89,7 +96,7 @@ class LyricsRepository(context: Context) {
             trimCache()
         }
         currentCoroutineContext().ensureActive()
-        JapaneseRomaji.convert(match.document) to false
+        JapaneseRomaji.convert(match.document) to (match.source === cachedMatch?.source)
     }
 
     private fun cacheFile(track: Track): File {
@@ -109,12 +116,16 @@ class LyricsRepository(context: Context) {
         }
     }
 
-    private suspend fun request(endpoint: String, track: Track, title: String): String? {
+    private suspend fun request(endpoint: String, track: Track, title: String, sourceId: Long? = null): String? {
         val url = HttpUrl.Builder().scheme("https").host("lrclib.net").addPathSegment("api").addPathSegment(endpoint)
-            .addQueryParameter("track_name", title).addQueryParameter("artist_name", LyricsMatching.artist(track))
-            .apply { if (endpoint == "get" && track.duration > 0) addQueryParameter("duration", track.duration.toString()) }.build()
+            .apply {
+                if (sourceId != null) addPathSegment(sourceId.toString()) else {
+                    addQueryParameter("track_name", title).addQueryParameter("artist_name", LyricsMatching.artist(track))
+                    if (endpoint == "get" && track.duration > 0) addQueryParameter("duration", track.duration.toString())
+                }
+            }.build()
         val request = Request.Builder().url(url).header("Accept", "application/json")
-            .header("User-Agent", "NadaKuy/1.6.1 (https://github.com/kamo-bit/NadaKuy)").build()
+            .header("User-Agent", "NadaKuy/1.6.2 (https://github.com/kamo-bit/NadaKuy)").build()
         return suspendCancellableCoroutine { continuation ->
             val call = client.newCall(request)
             continuation.invokeOnCancellation { call.cancel() }

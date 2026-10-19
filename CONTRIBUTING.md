@@ -40,6 +40,8 @@ Tes jaringan dan nada uji tidak berjalan secara default. Aktifkan hanya perjalan
 | `liveLyrics=true` | Lirik nyata Inggris/Jepang, pembacaan kanji, serta pembukaan ulang cache; juga memakai pencarian YouTube Music |
 | `liveLyricsCatalog=true` | Enam rekaman Jepang/Indonesia; menyimpan metadata dan hasil lirik lokal untuk audit opsional |
 | `liveLyricsPlayback=true` | Seek maju/mundur, ketuk baris, Next/Previous dan pergantian otomatis pada service dan layar lirik asli; pilih sampel dengan `lyricsSong` |
+| `liveLyricsTiming=true` | Enam identitas rekaman yang tersimpan; memeriksa pemilihan sumber, waktu terkoreksi, serta kesamaan hasil jaringan dan cache |
+| `acousticExport=true` | Menyimpan byte audio keenam rekaman melalui resolver/cache pemutar ke ruang privat aplikasi, beserta ID, ukuran dan SHA-256 untuk pemeriksaan akustik lokal |
 
 Contoh:
 
@@ -50,6 +52,8 @@ Contoh:
 Untuk `liveSession`, pilih sumber YouTube di aplikasi sebelum pengujian. Tes layanan langsung bergantung pada jaringan dan ketersediaan katalog. Tes otomatis memeriksa state serta error pemutar; kualitas suara tetap perlu didengarkan pada perangkat sasaran, termasuk saat pergantian lagu dan aplikasi di latar belakang.
 
 Untuk audit lirik, jalankan `LyricsCatalogLiveTest` dengan `liveLyricsCatalog=true` dahulu, lalu `LyricsPlaybackLiveTest` dengan `liveLyricsPlayback=true` dan `lyricsSong=yoru`, `lemon`, `refrain`, `kangen`, `dan`, atau `yangterdalam`. Jalankan setiap sampel dalam proses instrumentasi terpisah. Hasil rinci disimpan lokal, bukan ditulis ke log atau repository. Sorotan diuji terhadap timestamp lirik dan posisi Media3; tes ini tidak menilai keselarasan vokal secara akustik atau menjamin bacaan khusus semua lagu.
+
+`LyricsTimingLiveTest` dan `LyricsAcousticExportTest` memakai metadata rekaman yang disimpan audit katalog, sehingga tidak mengganti hasil pencarian di tengah pengujian. Ekspor akustik mengunduh audio dan hanya berjalan dengan argumennya sendiri. Pisahkan validasi cursor dari pembandingan onset vokal terhadap audio. Pengukuran otomatis pada nyanyian dapat keliru; periksa beberapa bagian lagu dan abaikan pencocokan yang ambigu sebelum mengubah profil waktu. Simpan rekaman, transkripsi dan hasil pengukuran lengkap secara privat. Profil produksi hanya berisi identitas, fingerprint, dan koreksi waktu; perubahan lirik atau rekaman harus membatalkan koreksi lama.
 
 ## Pull request
 

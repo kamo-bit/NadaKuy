@@ -64,6 +64,7 @@ object LyricsMatching {
     fun choose(values: List<JsonElement>, track: Track): Match? {
         val titleKey = key(title(track))
         val romanizedTitle = JapaneseRomaji.romanize(title(track))?.let(::key)
+        val preferredSourceId = LyricsTiming.preferredSourceId(track)
         return values.mapNotNull { item ->
         runCatching {
             val json = item.asJsonObject
@@ -83,9 +84,11 @@ object LyricsMatching {
             if (!instrumental && lines.none { it.text.isNotBlank() }) return@runCatching null
             val id = json.get("id").asLong
             require(id > 0)
-            distance to Match(LyricsDocument(id, title, artist, duration, instrumental, lines, synced && lines.isNotEmpty()), item)
+            val document = LyricsTiming.apply(track, LyricsDocument(id, title, artist, duration, instrumental, lines, synced && lines.isNotEmpty()))
+            distance to Match(document, item)
         }.getOrNull()
-    }.sortedWith(compareBy<Pair<Double, Match>> { if (it.second.document.synced) 0 else 1 }.thenBy { it.first })
+    }.sortedWith(compareBy<Pair<Double, Match>> { if (it.second.document.synced) 0 else 1 }
+        .thenBy { if (it.second.document.id == preferredSourceId) 0 else 1 }.thenBy { it.first })
         .firstOrNull()?.second
     }
 }

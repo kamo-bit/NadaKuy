@@ -121,7 +121,8 @@ object YouTubeCatalog {
                     if (videos) "YouTube" else "YouTube Music", YouTubeLinks.watch(id), "youtube"), item.isUploaderVerified)
             }.distinctBy { it.track.id }
             val tracks = YouTubeSearchRanking.rank(term, entries)
-            searches[key] = SearchEntry(System.currentTimeMillis(), tracks)
+            // Empty upstream responses may be transient; a user retry must query the catalog again.
+            if (tracks.isNotEmpty()) searches[key] = SearchEntry(System.currentTimeMillis(), tracks)
             while (searches.size > 24) searches.remove(searches.keys.first())
             tracks
         }

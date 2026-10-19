@@ -277,6 +277,7 @@ private fun HomeScreen(s: MusicState, model: MusicViewModel, modifier: Modifier,
                 Button(onClick = spotify) { Text("Hubungkan Spotify") }
             }
         }
+        item { PersonalizedHome(s, { tracks, index -> model.play(tracks, index) }, model::retryRecommendations) }
         s.homeError?.let { item { ErrorBlock(it, model::refresh, s.home.isNotEmpty()) } }
         if (s.home.isEmpty() && s.loading) item { LoadingBlock("Menemukan musik untukmu…") }
         if (s.home.isNotEmpty()) {
@@ -341,7 +342,14 @@ private fun SearchScreen(s: MusicState, model: MusicViewModel, modifier: Modifie
             s.searching -> item { LoadingBlock("Mencari musik…") }
             s.searchError != null -> item { ErrorBlock(s.searchError, { model.search(s.query) }) }
             s.results.isEmpty() -> item { EmptyBlock(Icons.Rounded.Search, "Belum ada hasil", "Coba nama lagu atau artis lain di katalog ${sourceName(s)}.") }
-            else -> { item { SectionTitle("Lagu") }; items(s.results, key = Track::id) { track -> TrackRow(track, s, { focus.clearFocus(); model.rememberSearch(); model.play(s.results, s.results.indexOf(track)) }, { options(track) }) } }
+            else -> {
+                item {
+                    SectionTitle("Lagu")
+                    if (s.source == "youtube" && app.nada.player.youtube.YouTubeSearchRanking.originalPreferred(s.query)) Text("Rekaman resmi dan versi studio diprioritaskan", Modifier.padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
+                        color = NadaMuted, style = MaterialTheme.typography.bodyMedium)
+                }
+                items(s.results, key = Track::id) { track -> TrackRow(track, s, { focus.clearFocus(); model.rememberSearch(); model.play(s.results, s.results.indexOf(track)) }, { options(track) }) }
+            }
         }
     }
 }
@@ -503,7 +511,7 @@ internal fun TrackRow(track: Track, state: MusicState, play: () -> Unit, options
 }
 
 @Composable
-private fun TrackCard(track: Track, play: () -> Unit) {
+internal fun TrackCard(track: Track, play: () -> Unit) {
     Column(Modifier.width(158.dp).clickable(onClick = play)) {
         Cover(track, Modifier.size(158.dp).clip(RoundedCornerShape(6.dp)))
         Text(track.title, Modifier.padding(top = 10.dp), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
@@ -525,7 +533,7 @@ private fun BrandMark(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun SectionTitle(text: String, more: (() -> Unit)? = null) {
+internal fun SectionTitle(text: String, more: (() -> Unit)? = null) {
     Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 26.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(text, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
         more?.let { TextButton(onClick = it) { Text("Lihat semua", color = NadaMuted, style = MaterialTheme.typography.labelSmall) } }

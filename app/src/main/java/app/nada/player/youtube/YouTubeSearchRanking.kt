@@ -10,19 +10,24 @@ internal object YouTubeSearchRanking {
 
     private data class Version(val title: Regex, val query: Regex = title)
     private val versions = listOf(
-        Version(Regex("\\bcover(?:s|ed)?\\b")),
-        Version(Regex("(?:\\(|\\[|[-–—:]\\s*)live\\b|\\blive\\s+(?:at|from|in|on|version|performance|session|concert)\\b|\\b(?:konser|concert|tour|festival)\\b"), Regex("\\b(live|konser|concert|tour|festival)\\b")),
+        Version(Regex("\\bcover(?:s|ed)?\\b|カバー|歌ってみた")),
+        Version(Regex("(?:\\(|\\[|[-–—:]\\s*)live\\b|\\blive\\s+(?:at|from|in|on|version|performance|session|concert)\\b|\\b(?:konser|concert|tour|festival|the first take)\\b"), Regex("(?:^live$|\\blive\\s*$|\\blive\\s+(?:at|from|in|on|version|performance|session)\\b|\\b(?:konser|concert|tour|festival|the first take)\\b)")),
         Version(Regex("\\bkaraoke\\b")), Version(Regex("\\binstrumental\\b")),
         Version(Regex("\\bremix\\b")), Version(Regex("\\b(slowed|reverb)\\b")),
         Version(Regex("\\b(sped\\s*up|nightcore)\\b")), Version(Regex("\\b8d\\b")),
         Version(Regex("\\bbass\\s*boost(?:ed)?\\b")),
         Version(Regex("\\b(acoustic|akustik|unplugged)\\b")),
+        Version(Regex("\\b(reaction|tutorial|shorts?|medley|compilation|full\\s+album|mashup)\\b")),
     )
     private val decorations = setOf("official", "audio", "video", "music", "musik", "lagu", "mv", "lyrics", "lyric", "lirik", "version", "cover", "live", "remix", "acoustic", "akustik", "karaoke", "instrumental", "slowed", "reverb", "sped", "up")
     private val marks = Regex("\\p{M}+")
     private val letterDigitBoundary = Regex("(?<=\\p{L})(?=\\p{N})|(?<=\\p{N})(?=\\p{L})")
     private val separators = Regex("[^\\p{L}\\p{N}]+")
-    private val officialAudio = Regex("\\bofficial\\s+audio\\b")
+    private val officialAudio = Regex("\\bofficial\\s+(?:music\\s+)?(?:audio|video)\\b")
+
+    private data class Scored(val track: Track, val coverage: Int, val titleFocus: Int, val requested: Int, val unexpected: Int, val relevance: Int, val provenance: Int)
+
+    fun originalPreferred(query: String): Boolean = versions.none { it.query.containsMatchIn(query.lowercase(Locale.ROOT)) }
 
     fun rank(query: String, entries: List<Entry>): List<Track> {
         val wanted = tokens(query) - decorations
@@ -39,19 +44,18 @@ internal object YouTubeSearchRanking {
             val exactTitle = if (wanted.isNotEmpty() && titleTokens - decorations == wanted) 120 else 0
             val artistWeight = if (wanted.size > 1) 240 else 40
             val artistMatch = if (wanted.isEmpty()) 0 else artistWeight * wanted.count { it in artist } / wanted.size
-            val versionScore = versions.indices.sumOf { index ->
-                val found = versions[index].title.containsMatchIn(title)
-                when {
-                    requestedVersions[index] -> if (found) 160 else 0
-                    found -> -260
-                    else -> 0
-                }
-            }
-            val provenance = (if (entry.verifiedUploader) 20 else 0) +
-                (if (officialAudio.containsMatchIn(normalize(title))) 12 else 0) +
-                (if (entry.track.artist.endsWith(" - Topic", true) || entry.track.artist.endsWith("VEVO", true)) 8 else 0)
-            entry.track to (coverage + titleMatch + exactTitle + artistMatch + versionScore + provenance)
-        }.sortedByDescending { it.second }.map { it.first }
+            val foundVersions = versions.map { it.title.containsMatchIn(title) }
+            val requested = versions.indices.count { requestedVersions[it] && foundVersions[it] }
+            val unexpected = versions.indices.count { !requestedVersions[it] && foundVersions[it] }
+            val provenance = (if (entry.verifiedUploader) 8 else 0) +
+                (if (officialAudio.containsMatchIn(normalize(title))) 24 else 0) +
+                (if (entry.track.artist.endsWith(" - Topic", true)) 80 else 0) +
+                (if (entry.track.artist.endsWith("VEVO", true)) 64 else 0)
+            Scored(entry.track, coverage, if (wanted.size == 1 && titleMatch > 0) 1 else 0, requested, unexpected, titleMatch + exactTitle + artistMatch, provenance)
+        }.sortedWith(compareByDescending<Scored> { it.coverage }
+            .thenByDescending { it.titleFocus }
+            .thenByDescending { it.requested }.thenBy { it.unexpected }
+            .thenByDescending { it.relevance + it.provenance }).map { it.track }
     }
 
     private fun normalize(value: String): String = Normalizer.normalize(value, Normalizer.Form.NFKD)

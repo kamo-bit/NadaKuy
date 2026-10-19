@@ -56,4 +56,25 @@ class YouTubeSearchRankingTest {
         val studio = entry("Dewa 19 - Kangen (Official Audio)", "GP Records", true)
         assertEquals(studio.track, YouTubeSearchRanking.rank("Dewa19 Kangen official", listOf(concert, studio)).first())
     }
+
+    @Test fun verifiedCoverCannotOutrankRelevantTopicRecordingAndIrrelevantOfficialCannotLead() {
+        val cover = entry("Dewa 19 Kangen (Cover)", "Famous Cover Artist", true)
+        val original = entry("Kangen", "Dewa 19 - Topic")
+        val unrelated = entry("Another Song (Official Audio)", "Dewa 19", true)
+        assertEquals(listOf(original.track, cover.track, unrelated.track), YouTubeSearchRanking.rank("Dewa19 Kangen", listOf(cover, unrelated, original)))
+    }
+
+    @Test fun japaneseCoverAndFirstTakeAreAlternativesUnlessRequested() {
+        val cover = entry("Lemon 歌ってみた", "Singer", true)
+        val live = entry("Lemon - THE FIRST TAKE", "Artist", true)
+        val studio = entry("Lemon", "Artist - Topic")
+        assertEquals(studio.track, YouTubeSearchRanking.rank("Lemon", listOf(cover, live, studio)).first())
+        assertEquals(live.track, YouTubeSearchRanking.rank("Lemon first take", listOf(studio, live)).first())
+    }
+
+    @Test fun songNamedLiveForeverIsNotAnExplicitLiveRequest() {
+        val studio = entry("Live Forever", "Oasis - Topic")
+        val live = entry("Live Forever (Live at Wembley)", "Oasis", true)
+        assertEquals(studio.track, YouTubeSearchRanking.rank("Live Forever", listOf(live, studio)).first())
+    }
 }

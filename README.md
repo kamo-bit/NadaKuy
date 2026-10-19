@@ -13,6 +13,7 @@ APK ini merupakan build debug untuk pengujian, dengan sertifikat lokal yang sama
 ## Fitur
 
 - Pencarian lagu dan artis, dengan peringkat yang mengutamakan kecocokan judul, artis, dan rekaman asli.
+- Rekomendasi lokal dari artis yang sering didengarkan dan bagian **Sering kamu putar** di Beranda.
 - Pemutaran di latar belakang, kontrol notifikasi, antrean, shuffle, repeat, dan sleep timer.
 - Lagu disukai, playlist, riwayat pemutaran, dan riwayat pencarian yang disimpan di perangkat.
 - Unduhan audio untuk diputar offline di NadaKuy, dengan progres, jeda/lanjutkan, coba lagi, dan penghapusan salinan lokal.
@@ -24,6 +25,14 @@ APK ini merupakan build debug untuk pengujian, dengan sertifikat lokal yang sama
 - Spotify App Remote untuk mengendalikan pemutaran melalui aplikasi Spotify resmi.
 
 YouTube Music menjadi sumber awal. YouTube dan Audius tidak memerlukan API key pengguna. Integrasi YouTube menggunakan NewPipe Extractor; perubahan layanan upstream dapat memerlukan pembaruan dependensi atau resolver. Peringkat pencarian memakai heuristik dan tidak menjamin semua hasil merupakan rekaman resmi.
+
+## Rekomendasi dan pencarian
+
+**Pilihan untukmu** mencari lagu lain dari maksimal dua artis yang paling sering didengarkan. Saat belum ada hitungan pemutaran, riwayat yang sudah tersimpan menjadi titik awal. Lagu yang ada dalam riwayat atau statistik tidak disarankan kembali, termasuk unggahan lain dengan judul/artis yang sama. Bagian **Sering kamu putar** muncul setelah sebuah lagu memiliki setidaknya dua pemutaran yang dihitung.
+
+Satu pemutaran dihitung setelah 30 detik audio benar-benar berjalan, atau setengah durasi untuk lagu yang lebih pendek. Jeda, buffering dan lompatan posisi tidak menambah waktu dengar. Penghitungan YouTube/Audius dimiliki service pemutar sehingga tetap bekerja di latar belakang; Spotify dihitung selama App Remote terhubung dan pemutarannya teramati. Statistik dibatasi 500 rekaman serta ukuran data 1 MiB, disimpan di perangkat dan tidak masuk backup koleksi atau backup Android. Pencarian rekomendasi mengirim nama artis ke katalog yang dipilih, tanpa mengirim seluruh statistik.
+
+Pencarian YouTube/YouTube Music mendahulukan kecocokan permintaan, lalu versi yang diminta dan rekaman dengan petunjuk studio/resmi. Cover, live, karaoke, remix, versi dipercepat/diperlambat dan kompilasi diturunkan ketika tidak diminta. Jika pengguna menulis **live**, **cover**, atau jenis versi lain, permintaan itu tetap dihormati. Petunjuk kanal Topic, VEVO, unggahan terverifikasi dan judul resmi membantu pengurutan, tetapi tidak membuktikan siapa pemilik rekaman asli. Versi alternatif tetap tersedia.
 
 ## Mendengarkan offline
 

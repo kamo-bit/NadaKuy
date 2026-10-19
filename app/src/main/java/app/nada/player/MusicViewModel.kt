@@ -57,9 +57,14 @@ import app.nada.player.spotify.SpotifyAuth
 import app.nada.player.spotify.SpotifyApi
 import app.nada.player.spotify.SpotifyRemote
 import app.nada.player.youtube.YouTubeCatalog
+import app.nada.player.recommendations.ListeningHistory
+import app.nada.player.recommendations.ListeningRecommendations
+import app.nada.player.recommendations.QualifiedListening
 
 data class MusicState(
     val home: List<Track> = emptyList(), val loading: Boolean = true, val homeError: String? = null,
+    val recommendations: List<Track> = emptyList(), val frequent: List<Track> = emptyList(),
+    val recommendationArtists: List<String> = emptyList(), val recommendationsLoading: Boolean = false, val recommendationsError: String? = null,
     val query: String = "", val results: List<Track> = emptyList(), val searching: Boolean = false, val searchError: String? = null,
     val liked: List<Track> = emptyList(), val history: List<Track> = emptyList(), val playlists: List<LocalPlaylist> = emptyList(),
     val current: Track? = null, val queue: List<QueuedTrack> = emptyList(), val playing: Boolean = false,
@@ -116,6 +121,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private var controller: MediaController? = null
     private var searchJob: Job? = null
     private var homeJob: Job? = null
+    private val listeningHistory = ListeningHistory.get(application)
+    private val spotifyListening = QualifiedListening()
+    private var recommendationsJob: Job? = null
+    private var recommendationsKey: String? = null
     private var genreJob: Job? = null
     private var authJob: Job? = null
     private var queueJob: Job? = null
@@ -150,6 +159,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
+        viewModelScope.launch { listeningHistory.state.collect { refreshRecommendations() } }
         viewModelScope.launch {
             appUpdater.state.catch { updateActionError = "Status pembaruan belum bisa dibaca. Buka ulang aplikasi." }
                 .collect { updateDownload = it }
@@ -165,10 +175,16 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }, ContextCompat.getMainExecutor(application))
         if (state.source != "audius") state = state.copy(home = emptyList())
         refresh()
-        viewModelScope.launch { while (isActive) { updatePlayer(); delay(750) } }
+        viewModelScope.launch { while (isActive) {
+            updatePlayer()
+            spotifyListening.sample(state.current.takeIf { state.source == "spotify" },
+                state.source == "spotify" && state.spotifyConnected && state.playing, SystemClock.elapsedRealtime())?.let { listeningHistory.record(it) }
+            delay(750)
+        } }
     }
 
     fun refresh() {
+        refreshRecommendations()
         if (homeJob?.isActive == true) return
         homeJob = viewModelScope.launch {
             state = state.copy(loading = true, homeError = null)
@@ -183,6 +199,45 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             }
             catch (error: CancellationException) { throw error }
             catch (error: Exception) { state = state.copy(loading = false, homeError = catalogMessage(error)) }
+        }
+    }
+
+    fun retryRecommendations() = refreshRecommendations(force = true)
+
+    private fun refreshRecommendations(force: Boolean = false) {
+        val source = state.source
+        val videos = state.youtubeVideos
+        val stats = listeningHistory.state.value
+        val seeds = ListeningRecommendations.seeds(stats, state.history, source)
+        state = state.copy(frequent = ListeningRecommendations.frequent(stats, source))
+        val key = "$source:$videos:${state.spotifyAuthorized}:${seeds.joinToString("|") { it.key }}"
+        if (!force && key == recommendationsKey) {
+            state = state.copy(recommendations = ListeningRecommendations.select(seeds.map { state.recommendations }, seeds,
+                stats.map { it.track } + state.history, source))
+            return
+        }
+        recommendationsKey = key
+        recommendationsJob?.cancel()
+        state = state.copy(recommendations = emptyList(), recommendationArtists = seeds.map { it.artist }, recommendationsError = null,
+            recommendationsLoading = seeds.isNotEmpty())
+        if (seeds.isEmpty()) return
+        recommendationsJob = viewModelScope.launch {
+            val pools = mutableListOf<List<Track>>()
+            var failures = 0
+            for (seed in seeds) {
+                try {
+                    pools += when (source) {
+                        "youtube" -> YouTubeCatalog.search(seed.artist, videos)
+                        "spotify" -> if (state.spotifyAuthorized) spotifyApi.search("artist:\"${seed.artist.replace("\"", "")}\"") else emptyList()
+                        else -> repository.search(seed.artist)
+                    }
+                } catch (error: CancellationException) { throw error }
+                catch (error: Exception) { pools += emptyList<Track>(); failures++ }
+            }
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            val heard = listeningHistory.state.value.map { it.track } + state.history
+            state = state.copy(recommendations = ListeningRecommendations.select(pools, seeds, heard, source), recommendationsLoading = false,
+                recommendationsError = if (failures > 0) "Sebagian rekomendasi belum bisa dimuat. Periksa internet, lalu coba lagi." else null)
         }
     }
 
@@ -426,7 +481,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun renamePlaylist(id: String, name: String) { repository.renamePlaylist(id, name); syncLibrary() }
     fun dismissMessage() { state = state.copy(message = null) }
 
-    private fun syncLibrary() { state = state.copy(liked = repository.liked + spotifyLikedTracks, history = repository.history, playlists = repository.playlists) }
+    private fun syncLibrary() {
+        state = state.copy(liked = repository.liked + spotifyLikedTracks, history = repository.history, playlists = repository.playlists)
+        refreshRecommendations()
+    }
     private fun loadSpotifyLike(track: Track) { spotifyRemote.libraryState(track) { added -> rememberSpotifyLike(track, added) } }
     private fun rememberSpotifyLike(track: Track, added: Boolean) {
         spotifyLikedTracks = spotifyLikedTracks.filterNot { it.id == track.id }.let { if (added) listOf(track) + it else it }

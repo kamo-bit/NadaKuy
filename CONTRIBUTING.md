@@ -43,6 +43,8 @@ Tes jaringan dan nada uji tidak berjalan secara default. Aktifkan hanya perjalan
 | `liveLyricsTiming=true` | Enam identitas rekaman yang tersimpan; memeriksa pemilihan sumber, waktu terkoreksi, serta kesamaan hasil jaringan dan cache |
 | `acousticExport=true` | Menyimpan byte audio keenam rekaman melalui resolver/cache pemutar ke ruang privat aplikasi, beserta ID, ukuran dan SHA-256 untuk pemeriksaan akustik lokal |
 | `liveAppUpdateFixtures=true` | Pemeriksaan APK nyata, checksum/sertifikat/versi salah dan pembatalan transfer; membutuhkan fixture APK baru yang ditandatangani serta fixture bersertifikat berbeda di external files aplikasi |
+| `liveRecommendations=true` | Pencarian katalog nyata dan rekomendasi lagu lain dari artis yang sering didengar; tidak membuktikan hak kepemilikan rekaman |
+| `liveRecommendationPlayback=true` | Dua pemutaran katalog nyata melewati ambang 30 detik; sengaja menambah riwayat dan hitungan lokal pada profil uji |
 
 Contoh:
 

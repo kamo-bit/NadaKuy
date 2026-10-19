@@ -20,6 +20,7 @@ import org.json.JSONObject
 class PlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
     private var sleepTimer: SleepTimer? = null
+    private var listening: ListeningObserver? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -56,11 +57,14 @@ class PlaybackService : MediaSessionService() {
                 }
             }).build()
         sleepTimer = SleepTimer(playback.engine) { extras -> session?.setSessionExtras(extras) }
+        val history = app.nada.player.recommendations.ListeningHistory.get(this)
+        listening = ListeningObserver(playback.engine) { history.record(it) }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
 
     override fun onDestroy() {
+        listening?.close(); listening = null
         sleepTimer?.close(); sleepTimer = null
         session?.run { player.release(); release() }
         session = null

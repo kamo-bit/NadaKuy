@@ -50,7 +50,9 @@ import app.nada.player.updates.AppUpdater
 import app.nada.player.updates.UpdateDownloadState
 import app.nada.player.updates.UpdatePackage
 import app.nada.player.updates.AppVersion
+import app.nada.player.lyrics.LyricsCandidate
 import app.nada.player.lyrics.LyricsRepository
+import app.nada.player.lyrics.LyricsSearchState
 import app.nada.player.lyrics.LyricsState
 import kotlinx.coroutines.ensureActive
 import app.nada.player.spotify.SpotifyAuth
@@ -91,6 +93,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val lyricsRepository = LyricsRepository(application)
     private var lyricsJob: Job? = null
     var lyricsState by mutableStateOf(LyricsState())
+        private set
+    private var lyricsSearchJob: Job? = null
+    var lyricsSearch by mutableStateOf(LyricsSearchState())
         private set
     val installedVersion: String = application.packageManager.getPackageInfo(application.packageName, 0).versionName ?: "0.0.0"
     var transferState by mutableStateOf(CollectionTransferState())
@@ -291,14 +296,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun togglePlayback() { if (state.source == "spotify") spotifyRemote.toggle() else controller?.togglePlayback() }
-    fun loadLyrics(track: Track, refresh: Boolean = false) {
+    fun loadLyrics(track: Track, refresh: Boolean = false, automatic: Boolean = false) {
         if (!refresh && lyricsState.trackId == track.id && (lyricsState.loading || lyricsState.document != null)) return
         val previous = lyricsState.takeIf { it.trackId == track.id && it.document != null }
         lyricsJob?.cancel()
         lyricsState = previous?.copy(loading = true, error = null) ?: LyricsState(trackId = track.id, loading = true)
         lyricsJob = viewModelScope.launch {
             try {
-                val result = lyricsRepository.load(track, refresh)
+                val result = lyricsRepository.load(track, refresh, automatic)
                 kotlinx.coroutines.currentCoroutineContext().ensureActive()
                 lyricsState = LyricsState(trackId = track.id, document = result.first, cached = result.second)
             } catch (error: CancellationException) { throw error }
@@ -311,6 +316,44 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun closeLyrics() {
         lyricsJob?.cancel()
         if (lyricsState.loading) lyricsState = if (lyricsState.document != null) lyricsState.copy(loading = false) else LyricsState()
+        lyricsSearchJob?.cancel()
+        lyricsSearch = LyricsSearchState()
+    }
+    fun openLyricsSearch(track: Track, query: String) {
+        if (lyricsSearch.trackId != track.id) searchLyrics(track, query)
+    }
+    fun searchLyrics(track: Track, query: String) {
+        val text = query.trim().take(200)
+        lyricsSearchJob?.cancel()
+        lyricsSearch = LyricsSearchState(trackId = track.id, query = text, loading = text.isNotEmpty())
+        if (text.isEmpty()) return
+        lyricsSearchJob = viewModelScope.launch {
+            try {
+                val results = lyricsRepository.search(text, track)
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                lyricsSearch = LyricsSearchState(trackId = track.id, query = text, results = results, searched = true)
+            } catch (error: CancellationException) { throw error }
+            catch (error: Exception) {
+                lyricsSearch = LyricsSearchState(trackId = track.id, query = text, searched = true,
+                    error = "Pencarian lirik gagal. Periksa internet, lalu coba lagi.")
+            }
+        }
+    }
+    fun useLyrics(track: Track, candidate: LyricsCandidate) {
+        val previous = lyricsState.takeIf { it.trackId == track.id && it.document != null }
+        lyricsJob?.cancel()
+        lyricsState = previous?.copy(loading = true, error = null) ?: LyricsState(trackId = track.id, loading = true)
+        lyricsJob = viewModelScope.launch {
+            try {
+                val document = lyricsRepository.select(track, candidate)
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                lyricsState = LyricsState(trackId = track.id, document = document)
+            } catch (error: CancellationException) { throw error }
+            catch (error: Exception) {
+                lyricsState = previous?.copy(loading = false, error = "Lirik pilihan belum bisa dipakai. Coba hasil lain.")
+                    ?: LyricsState(trackId = track.id, error = "Lirik pilihan belum bisa dipakai. Coba hasil lain.")
+            }
+        }
     }
     fun lyricsPosition(): Long = if (state.source == "spotify") state.position else controller?.currentPosition?.coerceAtLeast(0) ?: state.position
     fun download(track: Track) {

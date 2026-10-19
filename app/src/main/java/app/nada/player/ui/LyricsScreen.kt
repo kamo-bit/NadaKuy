@@ -42,10 +42,17 @@ fun LyricsScreen(state: MusicState, model: MusicViewModel, modifier: Modifier, b
         while (isActive) { value = model.lyricsPosition(); delay(200) }
     }
     val context = LocalContext.current
+    // Keyed by track so a pick can never land on the next song after a skip.
+    var browsing by rememberSaveable(track.id) { mutableStateOf(false) }
+    if (browsing) {
+        LyricsBrowser(track, lyrics.document, model, modifier) { browsing = false }
+        return
+    }
     Column(modifier.background(NadaBackground).safeDrawingPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Tutup lirik") }
             Text("Lirik", Modifier.weight(1f).padding(horizontal = 8.dp), style = MaterialTheme.typography.titleLarge)
+            IconButton(onClick = { browsing = true }, enabled = !lyrics.loading) { Icon(Icons.Rounded.Search, "Cari lirik lain") }
             IconButton(onClick = { model.loadLyrics(track, refresh = true) }, enabled = !lyrics.loading) { Icon(Icons.Rounded.Refresh, "Muat ulang lirik") }
         }
         Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 12.dp)) {
@@ -57,14 +64,16 @@ fun LyricsScreen(state: MusicState, model: MusicViewModel, modifier: Modifier, b
         when {
             lyrics.loading && document == null -> LyricsMessage("Mencari lirik…", "Mencocokkan judul, artis, dan durasi lagu.", Modifier.weight(1f), loading = true)
             lyrics.error != null && document == null -> LyricsMessage("Lirik belum bisa dimuat", lyrics.error, Modifier.weight(1f), retry = { model.loadLyrics(track, refresh = true) })
-            document == null -> LyricsMessage("Lirik belum ditemukan", "Belum ada lirik yang cocok untuk lagu ini di LRCLIB.", Modifier.weight(1f), retry = { model.loadLyrics(track, refresh = true) })
+            document == null -> LyricsMessage("Lirik belum ditemukan", "Pencarian otomatis belum menemukan lirik yang cocok. Cari sendiri di LRCLIB, lalu pilih lirik yang sesuai.",
+                Modifier.weight(1f), browse = { browsing = true })
             document.instrumental -> LyricsMessage("Lagu instrumental", "Penyedia lirik menandai rekaman ini tanpa vokal.", Modifier.weight(1f))
             else -> LyricsBody(document, position, state.canSeek, model::seek, Modifier.weight(1f).fillMaxWidth())
         }
         if (document != null) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, "https://lrclib.net".toUri())) } }) { Text("Lirik: LRCLIB") }
             Spacer(Modifier.weight(1f))
-            if (lyrics.cached) Text("Tersimpan di perangkat", color = NadaMuted, style = MaterialTheme.typography.labelSmall)
+            if (document.chosen) Text("Dipilih manual", color = NadaMuted, style = MaterialTheme.typography.labelSmall)
+            else if (lyrics.cached) Text("Tersimpan di perangkat", color = NadaMuted, style = MaterialTheme.typography.labelSmall)
         }
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp)) {
             LinearProgressIndicator(progress = { if (state.duration > 0) (position.toFloat() / state.duration).coerceIn(0f, 1f) else 0f },
@@ -129,7 +138,8 @@ internal fun LyricsBody(document: LyricsDocument, position: Long, canSeek: Boole
 }
 
 @Composable
-private fun LyricsMessage(title: String, message: String, modifier: Modifier, loading: Boolean = false, retry: (() -> Unit)? = null) {
+private fun LyricsMessage(title: String, message: String, modifier: Modifier, loading: Boolean = false,
+    retry: (() -> Unit)? = null, browse: (() -> Unit)? = null) {
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Column(Modifier.widthIn(max = 480.dp).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -137,6 +147,9 @@ private fun LyricsMessage(title: String, message: String, modifier: Modifier, lo
             else Icon(Icons.Rounded.Lyrics, null, Modifier.size(36.dp), tint = NadaMuted)
             Text(title, style = MaterialTheme.typography.titleLarge)
             Text(message, color = NadaMuted, style = MaterialTheme.typography.bodyLarge)
+            browse?.let { Button(onClick = it, modifier = Modifier.heightIn(min = 48.dp)) {
+                Icon(Icons.Rounded.Search, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("Cari lirik")
+            } }
             retry?.let { OutlinedButton(onClick = it, modifier = Modifier.heightIn(min = 48.dp)) { Text("Coba lagi") } }
         }
     }

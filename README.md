@@ -18,7 +18,7 @@ APK ini merupakan build debug untuk pengujian, dengan sertifikat lokal yang sama
 - Unduhan audio untuk diputar offline di NadaKuy, dengan progres, jeda/lanjutkan, coba lagi, dan penghapusan salinan lokal.
 - Unduh seluruh playlist atau lagu disukai sekaligus; lagu yang sudah offline dilewati. Pilihan jaringan tanpa kuota berlaku untuk semua unduhan.
 - Backup dan pemulihan playlist, favorit, riwayat putar, serta pencarian melalui pemilih file Android.
-- Pemeriksaan rilis terbaru di GitHub dari Pengaturan, dengan tautan APK resmi dan catatan perubahan.
+- Pembaruan di dalam aplikasi: cek rilis resmi, unduh dengan progres, periksa paket, lalu pasang melalui konfirmasi Android.
 - Lirik berjalan dari LRCLIB, sorotan baris aktif, dan ketuk baris untuk seek. Romaji Jepang dibuat lokal di perangkat, dengan teks asli tetap tersedia.
 - Pemutar layar penuh dengan warna yang mengikuti sampul album.
 - Spotify App Remote untuk mengendalikan pemutaran melalui aplikasi Spotify resmi.
@@ -44,10 +44,13 @@ Buka tab **Pengaturan** di ujung kanan navbar, setelah **Koleksi**. Pada layar l
 
 - **Simpan backup** membuat file JSON melalui pemilih lokasi Android. File berisi metadata koleksi, tanpa audio offline, token, atau koneksi Spotify.
 - **Pulihkan dari file** memeriksa isi backup dan menampilkan ringkasan sebelum menggabungkan. Koleksi yang ada tetap disimpan; identitas yang sama digabungkan tanpa duplikat, dan nama playlist lokal dipertahankan. Batas file 8 MB, 1.000 playlist, dan 20.000 entri lagu; riwayat tetap dibatasi 40 lagu serta 10 pencarian.
-- **Hanya jaringan tanpa kuota** mengikuti penanda koneksi Android, biasanya Wi-Fi. Unduhan menunggu jika syarat tersebut belum terpenuhi.
-- **Cek pembaruan** meminta rilis stabil terbaru dari GitHub tanpa login. NadaKuy hanya menawarkan APK versi lebih baru dari repository resmi. Tombol unduh membuka browser; buka APK dan pilih **Perbarui** melalui Android. Tidak perlu menghapus versi lama.
+- **Hanya jaringan tanpa kuota** mengikuti penanda koneksi Android, biasanya Wi-Fi. Berlaku untuk musik, playlist, dan paket pembaruan; unduhan menunggu jika syarat koneksi belum terpenuhi.
+- **Cek pembaruan** meminta rilis stabil terbaru dari GitHub tanpa login. Pilih **Unduh pembaruan** untuk mengambil paket langsung di NadaKuy, dengan progres dan tombol batal. Unduhan tetap dikelola ketika pengguna pindah halaman atau aplikasi berada di latar belakang.
+- Setelah pemeriksaan paket selesai, pilih **Pasang pembaruan**. Android dapat meminta izin pemasangan dari NadaKuy, kemudian menampilkan konfirmasi **Perbarui**. Koleksi dan audio offline tetap tersimpan. Jika pemasangan dibatalkan, paket tetap siap dipasang tanpa diunduh ulang.
 
-Pemeriksaan versi dilakukan atas permintaan, bukan di latar belakang. Jika GitHub atau koneksi sedang bermasalah, coba lagi atau buka halaman rilis. Pembaruan pada instalasi yang sama memerlukan nama paket dan sertifikat penandatanganan yang sama.
+Pemeriksaan versi dilakukan atas permintaan. Paket diambil dari rilis resmi dan disimpan di ruang privat aplikasi; ukuran, SHA-256, nama paket, versi dan sertifikat penandatanganan diperiksa sebelum pemasangan. Unduhan yang terputus dicoba ulang secara terbatas. Jika paket gagal diperiksa, NadaKuy menyediakan tindakan unduh ulang. Paket pembaruan tidak disertakan dalam backup koleksi. Riwayat rilis GitHub tetap tersedia sebagai tautan tambahan.
+
+Versi lama yang masih membuka browser perlu memasang APK dengan fitur ini satu kali. Setelah itu, unduhan pembaruan berikutnya dilakukan dari Pengaturan. Android tetap memerlukan persetujuan pemasangan; pembaruan mengambil paket APK baru dan mengganti instalasi yang ada.
 
 ## Lirik dan romaji
 

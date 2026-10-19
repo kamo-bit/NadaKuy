@@ -10,8 +10,8 @@ android {
         applicationId = "app.nada.player"
         minSdk = 26
         targetSdk = 36
-        versionCode = 13
-        versionName = "1.6.2"
+        versionCode = providers.gradleProperty("qaVersionCode").orNull?.toInt() ?: 14
+        versionName = providers.gradleProperty("qaVersionName").orNull ?: "1.7.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -90,6 +90,7 @@ dependencies {
   implementation("androidx.browser:browser:1.9.0")
   implementation("com.github.teamnewpipe:NewPipeExtractor:v0.26.5")
   implementation("com.squareup.okhttp3:okhttp:4.12.0")
+  implementation(libs.androidx.work.runtime)
   implementation(libs.kuromoji.ipadic)
   coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.5")
 }

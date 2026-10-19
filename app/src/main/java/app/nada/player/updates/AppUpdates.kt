@@ -19,7 +19,18 @@ data class AppVersion(val major: Int, val minor: Int, val patch: Int) : Comparab
     }
 }
 
-data class AppRelease(val version: String, val notes: String, val pageUrl: String, val apkUrl: String?)
+data class UpdatePackage(val tag: String, val bytes: Long, val sha256: String) {
+    val version: String get() = tag.removePrefix("v")
+    val url: String get() = "https://github.com/kamo-bit/NadaKuy/releases/download/$tag/NadaKuy-$version.apk"
+    init {
+        require(AppVersion.parse(tag) != null && bytes in 1..MAX_BYTES && sha256.matches(Regex("[0-9a-f]{64}"))) {
+            "Informasi paket pembaruan tidak valid. Cek pembaruan lagi."
+        }
+    }
+    companion object { const val MAX_BYTES = 200L * 1024 * 1024 }
+}
+
+data class AppRelease(val version: String, val notes: String, val pageUrl: String, val apk: UpdatePackage?)
 data class UpdateState(val checking: Boolean = false, val release: AppRelease? = null,
     val newer: Boolean = false, val checkedAt: String? = null, val error: String? = null)
 
@@ -55,13 +66,15 @@ object AppUpdates {
         require(AppVersion.parse(tag) != null) { "Versi rilis belum dikenali. Buka halaman rilis." }
         val page = root.get("html_url").asString
         require(page == "https://github.com/kamo-bit/NadaKuy/releases/tag/$tag") { "Tautan rilis tidak valid." }
-        val apk = root.getAsJsonArray("assets").firstOrNull { value ->
+        val apk = root.getAsJsonArray("assets").mapNotNull { value -> runCatching {
             val asset = value.asJsonObject
-            asset.get("name")?.asString == "NadaKuy-${tag.removePrefix("v")}.apk" &&
-                asset.get("state")?.asString == "uploaded" &&
-                asset.get("size")?.asLong?.let { it > 0 } == true &&
-                asset.get("browser_download_url")?.asString == "https://github.com/kamo-bit/NadaKuy/releases/download/$tag/NadaKuy-${tag.removePrefix("v")}.apk"
-        }?.asJsonObject?.get("browser_download_url")?.asString
+            val digest = asset.get("digest")?.asString.orEmpty()
+            require(digest.startsWith("sha256:"))
+            val candidate = UpdatePackage(tag, requireNotNull(asset.get("size")?.asString?.toLongOrNull()), digest.removePrefix("sha256:"))
+            require(asset.get("name")?.asString == "NadaKuy-${candidate.version}.apk" &&
+                asset.get("state")?.asString == "uploaded" && asset.get("browser_download_url")?.asString == candidate.url)
+            candidate
+        }.getOrNull() }.singleOrNull()
         return AppRelease(tag.removePrefix("v"), root.get("body")?.takeUnless { it.isJsonNull }?.asString.orEmpty().take(6000), page, apk)
     }
 

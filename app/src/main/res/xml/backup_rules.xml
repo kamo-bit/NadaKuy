@@ -2,4 +2,5 @@
 <full-backup-content>
     <!-- Download indexes refer to audio in noBackupFilesDir on this device. -->
     <exclude domain="database" path="." />
+    <exclude domain="file" path="updates/" />
 </full-backup-content>

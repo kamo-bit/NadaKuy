@@ -90,6 +90,9 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
     val artworkColor by rememberArtworkColor(s.current)
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
+    LaunchedEffect(model.updatesNavigationRequest) {
+        if (model.updatesNavigationRequest > 0) { tab = 3; collection = null; fullPlayer = false; showLyrics = false }
+    }
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     fun requestDownloadNotifications() {
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {

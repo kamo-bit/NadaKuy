@@ -6,7 +6,7 @@ NadaKuy uses the following components. Dependency source, licenses, and notices 
 | --- | --- | --- |
 | NewPipe Extractor | v0.26.5 | [GPL-3.0-or-later](https://github.com/TeamNewPipe/NewPipeExtractor/tree/v0.26.5); [included license](app/src/main/assets/licenses/NewPipeExtractor-GPL-3.0.txt) |
 | Spotify Android App Remote | 0.8.0 | [Apache-2.0](https://github.com/spotify/android-sdk/tree/v0.8.0-appremote_v2.1.0-auth); license and upstream notice included in `app/src/main/assets/licenses` |
-| AndroidX / Jetpack Compose / Media3 / Palette | See build files | [AndroidX source and licenses](https://android.googlesource.com/platform/frameworks/support/) |
+| AndroidX / Jetpack Compose / Media3 / Palette / WorkManager | See build files | [AndroidX source and licenses](https://android.googlesource.com/platform/frameworks/support/) |
 | Coil | 3.3.0 | [Apache-2.0](https://github.com/coil-kt/coil/tree/3.3.0) |
 | OkHttp | 4.12.0 | [Apache-2.0](https://github.com/square/okhttp/tree/parent-4.12.0) |
 | Gson | 2.13.2 | [Apache-2.0](https://github.com/google/gson/tree/gson-parent-2.13.2) |

@@ -14,9 +14,11 @@ kotlin = "2.3.20"
 nav3Core = "1.0.1"
 lifecycleViewmodelNav3 = "2.10.0"
 kuromoji = "0.9.0"
+androidxWork = "2.12.0"
 
 [libraries]
 kuromoji-ipadic = { module = "com.atilika.kuromoji:kuromoji-ipadic", version.ref = "kuromoji" }
+androidx-work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "androidxWork" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidxActivity" }
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "androidxComposeBom" }

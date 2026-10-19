@@ -3,6 +3,7 @@ package app.nada.player
 import android.app.Application
 import android.app.Activity
 import android.content.ComponentName
+import android.content.Intent
 import android.os.Bundle
 import android.os.SystemClock
 import android.net.Uri
@@ -42,8 +43,13 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.catch
 import app.nada.player.updates.AppUpdates
 import app.nada.player.updates.UpdateState
+import app.nada.player.updates.AppUpdater
+import app.nada.player.updates.UpdateDownloadState
+import app.nada.player.updates.UpdatePackage
+import app.nada.player.updates.AppVersion
 import app.nada.player.lyrics.LyricsRepository
 import app.nada.player.lyrics.LyricsState
 import kotlinx.coroutines.ensureActive
@@ -86,6 +92,16 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         private set
     var updateState by mutableStateOf(UpdateState())
         private set
+    var updateDownload by mutableStateOf(UpdateDownloadState())
+        private set
+    var updateActionError by mutableStateOf<String?>(null)
+        private set
+    var preparingUpdateInstall by mutableStateOf(false)
+        private set
+    private val appUpdater = AppUpdater.get(application)
+    var updatesNavigationRequest by mutableStateOf(0)
+        private set
+    fun requestUpdatesScreen() { updatesNavigationRequest++ }
     private val offlineLibrary = OfflineLibrary.get(application)
     private val spotifyAuth = SpotifyAuth(application)
     private val spotifyApi = SpotifyApi(spotifyAuth)
@@ -134,6 +150,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
+        viewModelScope.launch {
+            appUpdater.state.catch { updateActionError = "Status pembaruan belum bisa dibaca. Buka ulang aplikasi." }
+                .collect { updateDownload = it }
+        }
         viewModelScope.launch { offlineLibrary.state.collect { state = state.copy(offline = it) } }
         future.addListener({
             runCatching { future.get() }.onSuccess { player ->
@@ -326,6 +346,29 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 updateState = UpdateState(error = if (error is IllegalStateException) error.message
                     else "Tidak bisa memeriksa pembaruan. Periksa internet, lalu coba lagi.")
             }
+        }
+    }
+    fun downloadAppUpdate(pkg: UpdatePackage) {
+        if (updateDownload.busy || preparingUpdateInstall) return
+        if (!state.offline.loaded) { updateActionError = "Pengaturan unduhan sedang dimuat. Coba lagi sebentar."; return }
+        if (AppVersion.parse(pkg.version)!! <= AppVersion.parse(installedVersion)!!) return
+        updateActionError = null
+        viewModelScope.launch {
+            try { appUpdater.download(pkg, state.offline.unmeteredOnly) }
+            catch (error: CancellationException) { throw error }
+            catch (error: Exception) { updateActionError = "Unduhan belum bisa dimulai. Periksa ruang kosong, lalu coba lagi." }
+        }
+    }
+    fun cancelAppUpdate() { appUpdater.cancel(); updateActionError = null }
+    fun updateInstallError(message: String?) { updateActionError = message }
+    fun prepareAppUpdateInstall(ready: (Intent) -> Unit) {
+        if (preparingUpdateInstall) return
+        preparingUpdateInstall = true; updateActionError = null
+        viewModelScope.launch {
+            try { ready(appUpdater.installIntent()) }
+            catch (error: CancellationException) { throw error }
+            catch (error: Exception) { updateActionError = error.message ?: "Paket pembaruan belum bisa dibuka. Coba lagi." }
+            finally { preparingUpdateInstall = false }
         }
     }
     fun pauseDownload(id: String) = changeDownload { offlineLibrary.pause(id) }

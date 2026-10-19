@@ -2,10 +2,14 @@ package app.nada.player.ui
 
 import android.content.Intent
 import android.content.ActivityNotFoundException
+import android.provider.Settings
+import android.app.Activity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -26,12 +30,38 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+private enum class SettingsSection { TITLE, BACKUP, DOWNLOADS, UPDATES }
+
 @Composable
 fun SettingsScreen(state: MusicState, model: MusicViewModel, modifier: Modifier) {
     val context = LocalContext.current
     val transfer = model.transferState
     val update = model.updateState
+    val list = rememberLazyListState()
+    LaunchedEffect(model.updatesNavigationRequest) {
+        if (model.updatesNavigationRequest > 0) list.scrollToItem(SettingsSection.entries.indexOf(SettingsSection.UPDATES))
+    }
     var actionError by remember { mutableStateOf<String?>(null) }
+    val installer = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode != Activity.RESULT_OK) model.updateInstallError("Pemasangan belum selesai. Paket tetap tersimpan; ketuk Pasang pembaruan untuk mencoba lagi.")
+    }
+    fun launchInstaller() {
+        model.prepareAppUpdateInstall { intent ->
+            try { installer.launch(intent) }
+            catch (error: ActivityNotFoundException) { model.updateInstallError("Pemasang aplikasi Android belum tersedia di perangkat ini.") }
+            catch (error: SecurityException) { model.updateInstallError("Android belum mengizinkan pemasangan. Ketuk Pasang pembaruan untuk mencoba lagi.") }
+        }
+    }
+    val installPermission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        if (context.packageManager.canRequestPackageInstalls()) launchInstaller()
+        else model.updateInstallError("Izin pemasangan belum diberikan. Paket tetap tersimpan; ketuk Pasang pembaruan untuk mencoba lagi.")
+    }
+    fun requestInstall() {
+        if (context.packageManager.canRequestPackageInstalls()) launchInstaller() else {
+            try { installPermission.launch(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, "package:${context.packageName}".toUri())) }
+            catch (error: ActivityNotFoundException) { model.updateInstallError("Pengaturan izin pemasangan belum tersedia di perangkat ini.") }
+        }
+    }
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) model.exportCollection(uri)
     }
@@ -43,12 +73,17 @@ fun SettingsScreen(state: MusicState, model: MusicViewModel, modifier: Modifier)
         catch (error: ActivityNotFoundException) { actionError = "Browser belum tersedia. Pasang browser untuk membuka halaman rilis." }
     }
     Box(modifier, contentAlignment = Alignment.TopCenter) {
-    LazyColumn(Modifier.fillMaxHeight().widthIn(max = 720.dp).fillMaxWidth(), contentPadding = PaddingValues(bottom = 32.dp)) {
-        item {
+    LazyColumn(Modifier.fillMaxHeight().widthIn(max = 720.dp).fillMaxWidth(), state = list, contentPadding = PaddingValues(bottom = 32.dp)) {
+      items(SettingsSection.entries, key = { it.name }) { section ->
+        if (section == SettingsSection.DOWNLOADS || section == SettingsSection.UPDATES) {
+            HorizontalDivider(Modifier.padding(horizontal = 24.dp, vertical = 28.dp), color = MaterialTheme.colorScheme.outlineVariant)
+        }
+        when (section) {
+        SettingsSection.TITLE -> {
             Text("Pengaturan", Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 24.dp), style = MaterialTheme.typography.headlineMedium)
             actionError?.let { Text(it, Modifier.padding(horizontal = 24.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.error) }
         }
-        item {
+        SettingsSection.BACKUP -> {
             Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Backup koleksi", style = MaterialTheme.typography.titleLarge)
                 Text("Simpan playlist, lagu disukai, riwayat putar, dan pencarian ke file untuk dipindahkan ke perangkat lain.", color = NadaMuted)
@@ -73,53 +108,26 @@ fun SettingsScreen(state: MusicState, model: MusicViewModel, modifier: Modifier)
                 transfer.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
             }
         }
-        item { HorizontalDivider(Modifier.padding(horizontal = 24.dp, vertical = 28.dp), color = MaterialTheme.colorScheme.outlineVariant) }
-        item {
+        SettingsSection.DOWNLOADS -> {
             Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Unduhan", style = MaterialTheme.typography.titleLarge)
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f).padding(end = 16.dp)) {
                         Text("Hanya jaringan tanpa kuota", style = MaterialTheme.typography.titleMedium)
-                        Text("Mengikuti penanda kuota Android, biasanya Wi-Fi. Berlaku juga untuk unduhan playlist.", Modifier.padding(top = 4.dp), color = NadaMuted, style = MaterialTheme.typography.bodyMedium)
+                        Text("Mengikuti penanda kuota Android, biasanya Wi-Fi. Berlaku untuk musik, playlist, dan pembaruan aplikasi.", Modifier.padding(top = 4.dp), color = NadaMuted, style = MaterialTheme.typography.bodyMedium)
                     }
                     Switch(checked = state.offline.unmeteredOnly, onCheckedChange = model::setUnmeteredDownloads, enabled = state.offline.loaded,
                         modifier = Modifier.semantics { contentDescription = "Unduh hanya di jaringan tanpa kuota" })
                 }
             }
         }
-        item { HorizontalDivider(Modifier.padding(horizontal = 24.dp, vertical = 28.dp), color = MaterialTheme.colorScheme.outlineVariant) }
-        item {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Pembaruan aplikasi", style = MaterialTheme.typography.titleLarge)
-                Text("Versi terpasang ${model.installedVersion}", color = NadaMuted)
-                Text("Periksa rilis resmi NadaKuy di GitHub. Pemeriksaan dilakukan saat kamu menekan tombol di bawah.", color = NadaMuted, style = MaterialTheme.typography.bodyMedium)
-                when {
-                    update.checking -> Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(Modifier.size(20.dp), color = NadaGreen, strokeWidth = 2.dp)
-                        Text("Memeriksa versi terbaru…", Modifier.padding(start = 12.dp), color = NadaMuted)
-                    }
-                    update.error != null -> Text(update.error, color = MaterialTheme.colorScheme.error)
-                    update.release != null -> {
-                        val release = update.release
-                        Text(if (update.newer) "Versi ${release.version} tersedia" else "NadaKuy sudah terbaru",
-                            color = NadaGreen, style = MaterialTheme.typography.titleMedium)
-                        if (!update.newer && release.version != model.installedVersion) Text("Rilis publik terbaru: ${release.version}", color = NadaMuted, style = MaterialTheme.typography.bodyMedium)
-                        if (update.newer) {
-                            if (release.notes.isNotBlank()) Text(release.notes, style = MaterialTheme.typography.bodyMedium, color = NadaMuted)
-                            Button(onClick = { openLink(release.apkUrl ?: release.pageUrl) }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                                Icon(Icons.Rounded.SystemUpdate, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp))
-                                Text(if (release.apkUrl != null) "Unduh APK ${release.version}" else "Buka rilis ${release.version}")
-                            }
-                            Text("Buka APK yang selesai diunduh dan pilih Perbarui. Gunakan APK resmi agar koleksimu tetap tersimpan.", color = NadaMuted, style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
-                }
-                OutlinedButton(onClick = model::checkForUpdates, enabled = !update.checking, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                    Icon(Icons.Rounded.Refresh, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("Cek pembaruan")
-                }
-                TextButton(onClick = { openLink(AppUpdates.RELEASES_URL) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Buka halaman rilis") }
-            }
+        SettingsSection.UPDATES -> {
+            AppUpdateSection(model.installedVersion, update, model.updateDownload, model.preparingUpdateInstall,
+                model.updateActionError, model::checkForUpdates, model::downloadAppUpdate, model::cancelAppUpdate,
+                ::requestInstall, { openLink(AppUpdates.RELEASES_URL) })
         }
+        }
+      }
     }
     }
     transfer.pending?.let { backup ->

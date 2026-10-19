@@ -42,6 +42,7 @@ Tes jaringan dan nada uji tidak berjalan secara default. Aktifkan hanya perjalan
 | `liveLyricsPlayback=true` | Seek maju/mundur, ketuk baris, Next/Previous dan pergantian otomatis pada service dan layar lirik asli; pilih sampel dengan `lyricsSong` |
 | `liveLyricsTiming=true` | Enam identitas rekaman yang tersimpan; memeriksa pemilihan sumber, waktu terkoreksi, serta kesamaan hasil jaringan dan cache |
 | `acousticExport=true` | Menyimpan byte audio keenam rekaman melalui resolver/cache pemutar ke ruang privat aplikasi, beserta ID, ukuran dan SHA-256 untuk pemeriksaan akustik lokal |
+| `liveAppUpdateFixtures=true` | Pemeriksaan APK nyata, checksum/sertifikat/versi salah dan pembatalan transfer; membutuhkan fixture APK baru yang ditandatangani serta fixture bersertifikat berbeda di external files aplikasi |
 
 Contoh:
 
@@ -66,3 +67,7 @@ CI membangun APK debug dan APK uji instrumentasi, menjalankan tes unit, dan meme
 Untuk backup, uji ekspor/pilih file melalui Storage Access Framework, batal pada pratinjau, penggabungan dua kali, dan file tidak valid tanpa perubahan koleksi. Audio serta sesi Spotify tidak boleh masuk format portabel. Untuk unduhan playlist, pastikan lagu yang sudah selesai/aktif dilewati dan jumlah pada konfirmasi memakai seluruh playlist, termasuk saat pencarian lokal memfilter daftar. Pemeriksaan versi harus membandingkan angka dengan benar, tidak menawarkan downgrade, menolak rilis di luar repository resmi, dan menampilkan pemulihan saat jaringan gagal.
 
 Untuk lirik, pertahankan pasangan judul/artis dan pemeriksaan durasi sebelum memakai timestamp. Jangan memasang waktu buatan pada lirik teks. Uji cursor sebelum baris pertama, seek dua arah, pergantian lagu, gulir manual/Ikuti lagu, dan tampilan asli saat romaji dimatikan. Tes kamus harus berjalan juga di Android agar packaging resource Kuromoji benar-benar terverifikasi. Lirik nyata tidak dimasukkan sebagai fixture di repository; gunakan teks uji sendiri dan log hanya metadata serta jumlah baris.
+
+Untuk pembaruan aplikasi, gunakan APK dengan paket dan sertifikat yang sama serta versionCode lebih tinggi. Pada emulator pengujian, build debug bernomor lama dapat dibuat dengan `assembleDebug '-PqaVersionCode=12' '-PqaVersionName=1.6.1'`. Jangan menerbitkan build pengujian ini. Simpan APK final sebelum membangun versi uji. `UpdateDownloadTest` memakai `update-final.apk` dan `update-wrong-signer.apk` pada `getExternalFilesDir(null)`; fixture tidak dimasukkan ke Git. Tes UI memakai state transfer sintetis dan tidak membuktikan unduhan jaringan.
+
+Uji juga alur rilis nyata: cek versi, unduh, pindah ke Home lalu kembali, batalkan izin/dialog pemasangan dan pastikan paket tidak diunduh ulang. Terakhir, pasang pembaruan melalui pemasang Android dan periksa versi, koleksi serta indeks audio offline. APK disimpan privat dan dibagikan ke pemasang melalui FileProvider dengan izin baca untuk berkas tersebut. WorkManager memiliki lifecycle transfer; jangan mengganti progres dengan timer atau memasang paket tanpa pemeriksaan ulang sebelum intent pemasangan.

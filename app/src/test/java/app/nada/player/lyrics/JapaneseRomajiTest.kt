@@ -39,4 +39,20 @@ class JapaneseRomajiTest {
         val document = LyricsDocument(2, "Song", "Artist", 10.0, false, listOf(LyricLine(1000, "你好世界")), true)
         assertEquals(document, JapaneseRomaji.convert(document))
     }
+
+    @Test fun irregularPeopleCountersUseWholeReadingWithoutRewritingCompounds() {
+        assertEquals("futari de utatta", JapaneseRomaji.romanize("二人で歌った"))
+        assertEquals("hitori no hito", JapaneseRomaji.romanize("一人の人"))
+        assertEquals("futari", JapaneseRomaji.romanize("２人"))
+        assertEquals("nininsankyaku", JapaneseRomaji.romanize("二人三脚"))
+        assertFalse(JapaneseRomaji.romanize("二十一人")!!.contains("hitori"))
+        assertFalse(JapaneseRomaji.romanize("一人称")!!.contains("hitori"))
+    }
+
+    @Test fun inflectedVerbsStayTogetherButParticlesKeepWordBoundaries() {
+        assertEquals("aruita", JapaneseRomaji.romanize("歩いた"))
+        assertEquals("mitsukerareru", JapaneseRomaji.romanize("見つけられる"))
+        assertEquals("nakanai", JapaneseRomaji.romanize("泣かない"))
+        assertEquals("utatte iru", JapaneseRomaji.romanize("歌っている"))
+    }
 }

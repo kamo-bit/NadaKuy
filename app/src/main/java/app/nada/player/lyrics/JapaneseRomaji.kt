@@ -55,9 +55,24 @@ object JapaneseRomaji {
     @Synchronized
     fun romanize(text: String): String? {
         if (!hasJapanese(text)) return null
-        val readings = tokenizer.tokenize(text).map { token ->
+        val tokens = tokenizer.tokenize(text)
+        val words = mutableListOf<String>()
+        var index = 0
+        while (index < tokens.size) {
+            val token = tokens[index]
             val surface = token.surface
-            when {
+            val next = tokens.getOrNull(index + 1)
+            val previous = tokens.getOrNull(index - 1)
+            // IPADIC splits these irregular counters into number + ニン. Read
+            // the whole counter, but never rewrite compounds or 21人 as 20ひとり.
+            val number = Normalizer.normalize(surface, Normalizer.Form.NFKC)
+            if (token.partOfSpeechLevel2 == "数" && previous?.partOfSpeechLevel2 != "数" &&
+                next?.surface == "人" && next.partOfSpeechLevel3 == "助数詞" && number in setOf("一", "1", "二", "2")) {
+                words += if (number == "一" || number == "1") "ヒトリ" else "フタリ"
+                index += 2
+                continue
+            }
+            val reading = when {
                 surface == "こんにちは" -> "konnichiwa"
                 surface == "こんばんは" -> "konbanwa"
                 token.partOfSpeechLevel1 == "助詞" && surface == "は" -> "wa"
@@ -66,15 +81,19 @@ object JapaneseRomaji {
                 else -> token.pronunciation.takeUnless { it == "*" || it.isNullOrBlank() }
                     ?: token.reading.takeUnless { it == "*" || it.isNullOrBlank() } ?: surface
             }
-        }
-        // Inflections can split after a small tsu (ダッ + タ). Keep that reading
-        // together until kana conversion so gemination survives the token boundary.
-        val words = mutableListOf<String>()
-        for (reading in readings) {
-            if (words.lastOrNull()?.lastOrNull() in listOf('ッ', 'っ') &&
-                reading.firstOrNull()?.let { it in 'ぁ'..'ゖ' || it in 'ァ'..'ヺ' } == true) {
+            // Convert after grouping inflections: 歌っ+た / 歩い+た / 見つけ+られる.
+            // Spacing and gemination must follow the token sequence, not repairs
+            // to an already flattened Latin string.
+            val inflection = previous?.partOfSpeechLevel1 in setOf("動詞", "形容詞", "助動詞") &&
+                (token.partOfSpeechLevel1 == "助動詞" ||
+                    (token.partOfSpeechLevel1 == "動詞" && token.partOfSpeechLevel2 in setOf("非自立", "接尾")) ||
+                    (token.partOfSpeechLevel2 == "接続助詞" && surface in setOf("て", "で", "ば")))
+            val pendingConsonant = words.lastOrNull()?.lastOrNull() in listOf('ッ', 'っ') &&
+                reading.firstOrNull()?.let { it in 'ぁ'..'ゖ' || it in 'ァ'..'ヺ' } == true
+            if (words.isNotEmpty() && (inflection || pendingConsonant)) {
                 words[words.lastIndex] += reading
             } else words += reading
+            index++
         }
         return words.map(::kanaToRomaji).filter(String::isNotBlank).joinToString(" ").replace(Regex("\\s+([,.!?])"), "$1").trim()
             .takeIf { it.isNotBlank() && it != text }

@@ -114,7 +114,7 @@ class LyricsRepository(context: Context) {
             .addQueryParameter("track_name", title).addQueryParameter("artist_name", LyricsMatching.artist(track))
             .apply { if (endpoint == "get" && track.duration > 0) addQueryParameter("duration", track.duration.toString()) }.build()
         val request = Request.Builder().url(url).header("Accept", "application/json")
-            .header("User-Agent", "NadaKuy/1.6.0 (https://github.com/kamo-bit/NadaKuy)").build()
+            .header("User-Agent", "NadaKuy/1.6.1 (https://github.com/kamo-bit/NadaKuy)").build()
         return suspendCancellableCoroutine { continuation ->
             val call = client.newCall(request)
             continuation.invokeOnCancellation { call.cancel() }

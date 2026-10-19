@@ -38,6 +38,8 @@ Tes jaringan dan nada uji tidak berjalan secara default. Aktifkan hanya perjalan
 | `liveSession=true` | Antrean, Next/Previous, akhir lagu, dan latar belakang |
 | `transitionTone=true` | Nada deterministik untuk memeriksa transisi audio |
 | `liveLyrics=true` | Lirik nyata Inggris/Jepang, pembacaan kanji, serta pembukaan ulang cache; juga memakai pencarian YouTube Music |
+| `liveLyricsCatalog=true` | Enam rekaman Jepang/Indonesia; menyimpan metadata dan hasil lirik lokal untuk audit opsional |
+| `liveLyricsPlayback=true` | Seek maju/mundur, ketuk baris, Next/Previous dan pergantian otomatis pada service dan layar lirik asli; pilih sampel dengan `lyricsSong` |
 
 Contoh:
 
@@ -46,6 +48,8 @@ Contoh:
 ```
 
 Untuk `liveSession`, pilih sumber YouTube di aplikasi sebelum pengujian. Tes layanan langsung bergantung pada jaringan dan ketersediaan katalog. Tes otomatis memeriksa state serta error pemutar; kualitas suara tetap perlu didengarkan pada perangkat sasaran, termasuk saat pergantian lagu dan aplikasi di latar belakang.
+
+Untuk audit lirik, jalankan `LyricsCatalogLiveTest` dengan `liveLyricsCatalog=true` dahulu, lalu `LyricsPlaybackLiveTest` dengan `liveLyricsPlayback=true` dan `lyricsSong=yoru`, `lemon`, `refrain`, `kangen`, `dan`, atau `yangterdalam`. Jalankan setiap sampel dalam proses instrumentasi terpisah. Hasil rinci disimpan lokal, bukan ditulis ke log atau repository. Sorotan diuji terhadap timestamp lirik dan posisi Media3; tes ini tidak menilai keselarasan vokal secara akustik atau menjamin bacaan khusus semua lagu.
 
 ## Pull request
 

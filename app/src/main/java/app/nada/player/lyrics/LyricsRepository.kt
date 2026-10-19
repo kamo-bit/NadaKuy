@@ -5,6 +5,7 @@ import android.util.AtomicFile
 import app.nada.player.data.Track
 import app.nada.player.data.readBounded
 import com.google.gson.JsonElement
+import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -39,13 +40,33 @@ class LyricsRepository(context: Context) {
         client.dispatcher.executorService.shutdown()
     }
 
-    suspend fun load(track: Track, refresh: Boolean = false): Pair<LyricsDocument?, Boolean> = withContext(Dispatchers.IO) {
+    /** [automatic] discards a record the listener picked and returns to title/artist matching. */
+    suspend fun load(track: Track, refresh: Boolean = false, automatic: Boolean = false): Pair<LyricsDocument?, Boolean> = withContext(Dispatchers.IO) {
         val file = cacheFile(track)
+        if (automatic) file.delete()
         val preferredSourceId = LyricsTiming.preferredSourceId(track)
         var cachedMatch: LyricsMatching.Match? = null
-        if (!refresh && file.isFile && file.length() <= MAX_BYTES) {
-            val cached = runCatching { file.inputStream().use { JsonParser.parseString(it.readBounded(MAX_BYTES).toString(Charsets.UTF_8)) } }
-                .getOrNull()?.let { LyricsMatching.choose(listOf(it), track) }
+        val stored = if (file.isFile && file.length() <= MAX_BYTES) runCatching {
+            file.inputStream().use { JsonParser.parseString(it.readBounded(MAX_BYTES).toString(Charsets.UTF_8)) }
+        }.getOrNull() else null
+        stored?.takeIf { it.isJsonObject }?.asJsonObject?.get(SELECTED)?.let { LyricsMatching.selected(it, track) }?.let { picked ->
+            if (!refresh) {
+                file.setLastModified(System.currentTimeMillis())
+                currentCoroutineContext().ensureActive()
+                return@withContext JapaneseRomaji.convert(picked.document) to true
+            }
+            val fresh = request("get", track, LyricsMatching.title(track), picked.document.id)
+                ?.let { runCatching { LyricsMatching.selected(JsonParser.parseString(it), track) }.getOrNull() }
+            currentCoroutineContext().ensureActive()
+            if (fresh != null) {
+                store(file, selection(fresh.source))
+                return@withContext JapaneseRomaji.convert(fresh.document) to false
+            }
+            // LRCLIB no longer serves the picked record; fall back to automatic matching.
+            file.delete()
+        }
+        if (!refresh && stored != null) {
+            val cached = LyricsMatching.choose(listOf(stored), track)
             if (cached != null) {
                 cachedMatch = cached
                 file.setLastModified(System.currentTimeMillis())
@@ -85,8 +106,33 @@ class LyricsRepository(context: Context) {
             failure?.let { throw it }
             return@withContext null to false
         }
-        val bytes = match.source.toString().toByteArray(Charsets.UTF_8)
         currentCoroutineContext().ensureActive()
+        store(file, match.source)
+        currentCoroutineContext().ensureActive()
+        JapaneseRomaji.convert(match.document) to (match.source === cachedMatch?.source)
+    }
+
+    /** Free-text LRCLIB search for the lyrics browser, matching what lrclib.net offers. */
+    suspend fun search(query: String, track: Track): List<LyricsCandidate> = withContext(Dispatchers.IO) {
+        val response = request("search") { addQueryParameter("q", query) } ?: return@withContext emptyList()
+        val json = JsonParser.parseString(response)
+        currentCoroutineContext().ensureActive()
+        if (!json.isJsonArray) emptyList() else LyricsMatching.candidates(json.asJsonArray.toList().take(50), track)
+    }
+
+    /** Keeps the listener's pick for this track until they pick another or return to automatic matching. */
+    suspend fun select(track: Track, candidate: LyricsCandidate): LyricsDocument = withContext(Dispatchers.IO) {
+        val match = requireNotNull(LyricsMatching.selected(candidate.source, track)) { "Lirik pilihan tidak valid." }
+        currentCoroutineContext().ensureActive()
+        store(cacheFile(track), selection(match.source))
+        currentCoroutineContext().ensureActive()
+        JapaneseRomaji.convert(match.document)
+    }
+
+    private fun selection(source: JsonElement) = JsonObject().apply { add(SELECTED, source) }
+
+    private fun store(file: File, value: JsonElement) {
+        val bytes = value.toString().toByteArray(Charsets.UTF_8)
         // A failed cache write must not hide successfully fetched lyrics.
         runCatching {
             val atomic = AtomicFile(file)
@@ -95,8 +141,6 @@ class LyricsRepository(context: Context) {
             catch (error: Exception) { atomic.failWrite(output); throw error }
             trimCache()
         }
-        currentCoroutineContext().ensureActive()
-        JapaneseRomaji.convert(match.document) to (match.source === cachedMatch?.source)
     }
 
     private fun cacheFile(track: Track): File {
@@ -116,14 +160,16 @@ class LyricsRepository(context: Context) {
         }
     }
 
-    private suspend fun request(endpoint: String, track: Track, title: String, sourceId: Long? = null): String? {
+    private suspend fun request(endpoint: String, track: Track, title: String, sourceId: Long? = null): String? = request(endpoint) {
+        if (sourceId != null) addPathSegment(sourceId.toString()) else {
+            addQueryParameter("track_name", title).addQueryParameter("artist_name", LyricsMatching.artist(track))
+            if (endpoint == "get" && track.duration > 0) addQueryParameter("duration", track.duration.toString())
+        }
+    }
+
+    private suspend fun request(endpoint: String, parameters: HttpUrl.Builder.() -> Unit): String? {
         val url = HttpUrl.Builder().scheme("https").host("lrclib.net").addPathSegment("api").addPathSegment(endpoint)
-            .apply {
-                if (sourceId != null) addPathSegment(sourceId.toString()) else {
-                    addQueryParameter("track_name", title).addQueryParameter("artist_name", LyricsMatching.artist(track))
-                    if (endpoint == "get" && track.duration > 0) addQueryParameter("duration", track.duration.toString())
-                }
-            }.build()
+            .apply(parameters).build()
         val request = Request.Builder().url(url).header("Accept", "application/json")
             .header("User-Agent", "NadaKuy/1.6.2 (https://github.com/kamo-bit/NadaKuy)").build()
         return suspendCancellableCoroutine { continuation ->
@@ -152,5 +198,9 @@ class LyricsRepository(context: Context) {
         }
     }
 
-    companion object { private const val MAX_BYTES = 1024 * 1024 }
+    companion object {
+        private const val MAX_BYTES = 1024 * 1024
+        // Wraps a picked record so automatic matching never replaces or rejects it.
+        private const val SELECTED = "nadakuySelected"
+    }
 }

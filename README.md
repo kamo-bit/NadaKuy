@@ -60,6 +60,8 @@ Untuk lirik Jepang, pilihan **Romaji** menampilkan bacaan Latin di bawah tulisan
 
 Lirik diperoleh dari LRCLIB berdasarkan judul, artis, dan durasi. Timestamp hanya dipakai jika durasi rekaman cocok dalam toleransi empat detik; versi lain dapat memakai lirik teks dengan keterangan waktu belum tersedia. Ketersediaan dan ketepatan lirik bergantung pada sumber. Lirik yang berhasil dibuka disimpan lokal untuk dibaca lagi tanpa internet; men-download audio tidak otomatis men-download lirik. Cache lirik dibatasi 50 rekaman dan 8 MB, dan tidak disertakan dalam backup koleksi.
 
+Jika pencarian otomatis tidak menemukan lirik atau memilih versi yang salah, tekan **Cari lirik** pada layar lirik atau ikon cari di kanan atas. Pencarian bebas di LRCLIB menampilkan judul, artis, album, durasi, dan status sinkron setiap hasil; ketuk hasil untuk melihat pratinjau, lalu pilih **Gunakan lirik ini**. Pilihan tetap memakai pemeriksaan durasi: jika selisihnya lebih dari empat detik, lirik tampil sebagai teks tanpa waktu. Pilihan disimpan untuk lagu tersebut bersama cache lirik, dapat diganti kapan saja, atau dikembalikan lewat **Kembali ke pencocokan otomatis**.
+
 Beberapa rekaman memiliki pemilihan sumber dan koreksi waktu khusus yang telah dibandingkan dengan vokalnya. Koreksi dibatasi pada identitas rekaman, durasi, ID sumber, serta fingerprint isi dan timestamp lirik. Jika data sumber berubah, koreksi lama tidak diterapkan. Data cache tetap menyimpan versi asli dari penyedia agar pergeseran waktu tidak bertambah saat lirik dibuka ulang.
 
 ## Mulai mengembangkan

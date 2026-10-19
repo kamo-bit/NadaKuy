@@ -57,4 +57,49 @@ class LyricsTest {
         assertEquals(0L, unknown.lines.first().timeMs)
         assertNull(LyricsMatching.choose(listOf(record(1, "Another Singer")), track))
     }
+
+    private fun result(id: Int, title: String, artist: String, duration: Int, synced: String?, plain: String?) = JsonParser.parseString("""
+        {"id":$id,"trackName":"$title","artistName":"$artist","albumName":"Album $id","duration":$duration,"instrumental":false,
+        "syncedLyrics":${synced?.let { "\"$it\"" } ?: "null"},"plainLyrics":${plain?.let { "\"$it\"" } ?: "null"}}
+    """)
+
+    @Test fun pickedRecordSkipsTitleAndArtistCheckButStillGuardsTimestampsWithDuration() {
+        val picked = LyricsMatching.selected(result(7, "Our Song - Remastered", "Singer feat. Friend", 121, "[00:01]Our song", "Our song"), track)!!
+        assertTrue(picked.document.chosen)
+        assertTrue(picked.document.synced)
+        val longer = LyricsMatching.selected(result(8, "Our Song", "Singer", 135, "[00:01]Our song", "Our song"), track)!!.document
+        assertFalse(longer.synced)
+        assertEquals(0L, longer.lines.single().timeMs)
+        assertNull(LyricsMatching.choose(listOf(result(7, "Our Song - Remastered", "Singer feat. Friend", 121, "[00:01]Our song", "Our song")), track))
+    }
+
+    @Test fun pickedTimedOnlyRecordWithWrongDurationKeepsWordsWithoutTiming() {
+        val document = LyricsMatching.selected(result(9, "Other", "Band", 300, "[00:01]First\\n[00:03]\\n[00:05]Second", null), track)!!.document
+        assertFalse(document.synced)
+        assertEquals(listOf("First", "Second"), document.lines.map { it.text })
+        assertTrue(document.lines.all { it.timeMs == 0L })
+        assertNull(LyricsMatching.choose(listOf(result(9, "Our Song", "Singer", 300, "[00:01]First", null)), track))
+    }
+
+    @Test fun browserCandidatesPutUsableTimestampsFirstThenClosestDurationAndDropDuplicates() {
+        val results = LyricsMatching.candidates(listOf(
+            result(1, "A", "X", 150, null, "plain"),
+            result(2, "B", "X", 160, "[00:01]timed", "timed"),
+            result(3, "C", "X", 123, "[00:01]timed", "timed"),
+            result(4, "D", "X", 120, "[00:01]timed", "timed"),
+            result(4, "D", "X", 120, "[00:01]timed", "timed"),
+            JsonParser.parseString("{\"id\":5}"),
+        ), track)
+        assertEquals(listOf(4L, 3L, 1L, 2L), results.map { it.document.id })
+        assertTrue(results[0].document.synced)
+        assertEquals(0.0, results[0].durationDifference!!, 0.0)
+        assertTrue(results.last().timedAvailable)
+        assertFalse(results.last().document.synced)
+        assertEquals("Album 4", results[0].album)
+        assertNull(LyricsMatching.candidates(listOf(result(1, "A", "X", 150, null, "plain")), track.copy(duration = 0)).single().durationDifference)
+    }
+
+    @Test fun browserQueryUsesCleanTitleAndArtist() {
+        assertEquals("Our Song Singer", LyricsMatching.query(track))
+    }
 }

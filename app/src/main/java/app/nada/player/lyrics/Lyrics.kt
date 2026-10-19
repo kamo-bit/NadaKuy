@@ -9,9 +9,15 @@ import kotlin.math.abs
 data class LyricLine(val timeMs: Long, val text: String, val romaji: String? = null)
 data class LyricsDocument(val id: Long, val title: String, val artist: String, val duration: Double,
     val instrumental: Boolean, val lines: List<LyricLine>, val synced: Boolean,
-    val romanized: Boolean = false)
+    val romanized: Boolean = false, val chosen: Boolean = false)
 data class LyricsState(val trackId: String? = null, val loading: Boolean = false,
     val document: LyricsDocument? = null, val cached: Boolean = false, val error: String? = null)
+
+/** A search result offered in the lyrics browser. [document] already reflects whether timestamps fit this track. */
+data class LyricsCandidate(val document: LyricsDocument, val album: String, val timedAvailable: Boolean,
+    val durationDifference: Double?, val source: JsonElement)
+data class LyricsSearchState(val trackId: String? = null, val query: String = "", val loading: Boolean = false,
+    val results: List<LyricsCandidate> = emptyList(), val searched: Boolean = false, val error: String? = null)
 
 object LrcParser {
     private val time = Regex("\\[(\\d{1,4}):([0-5]\\d)(?:[.:](\\d{1,3}))?]")
@@ -61,25 +67,52 @@ object LyricsMatching {
     private fun key(text: String) = Normalizer.normalize(text, Normalizer.Form.NFKC).lowercase(Locale.ROOT)
         .filter { it.isLetterOrDigit() }
 
+    fun query(track: Track): String = listOf(title(track), artist(track)).filter(String::isNotBlank).joinToString(" ")
+
     fun choose(values: List<JsonElement>, track: Track): Match? {
-        val titleKey = key(title(track))
-        val romanizedTitle = JapaneseRomaji.romanize(title(track))?.let(::key)
         val preferredSourceId = LyricsTiming.preferredSourceId(track)
-        return values.mapNotNull { item ->
+        val titles = listOfNotNull(key(title(track)), JapaneseRomaji.romanize(title(track))?.let(::key)).toSet()
+        return values.mapNotNull { parse(it, track, titles) }
+            .sortedWith(compareBy<Pair<Double, Match>> { if (it.second.document.synced) 0 else 1 }
+                .thenBy { if (it.second.document.id == preferredSourceId) 0 else 1 }.thenBy { it.first })
+            .firstOrNull()?.second
+    }
+
+    /** A record the listener picked; it replaces the title/artist check, while the duration check still guards timestamps. */
+    fun selected(item: JsonElement, track: Track): Match? = parse(item, track, titles = null)?.second
+        ?.let { it.copy(document = it.document.copy(chosen = true)) }
+
+    fun candidates(values: List<JsonElement>, track: Track): List<LyricsCandidate> = values.mapNotNull { item ->
+        val (distance, match) = parse(item, track, titles = null) ?: return@mapNotNull null
+        val json = item.asJsonObject
+        val album = runCatching { json.get("albumName")?.takeUnless { it.isJsonNull }?.asString }.getOrNull().orEmpty()
+        val timed = runCatching { json.get("syncedLyrics")?.takeUnless { it.isJsonNull }?.asString }.getOrNull().orEmpty().isNotBlank()
+        LyricsCandidate(match.document, album.take(200), timed, distance.takeIf { it != Double.MAX_VALUE }, item)
+    }.distinctBy { it.document.id }
+        .sortedWith(compareBy<LyricsCandidate> { if (it.document.synced) 0 else 1 }.thenBy { it.durationDifference ?: Double.MAX_VALUE })
+
+    /** [titles] holds the accepted title keys; null skips the identity check for a record the listener picked. */
+    private fun parse(item: JsonElement, track: Track, titles: Set<String>?): Pair<Double, Match>? =
         runCatching {
             val json = item.asJsonObject
             val title = json.get("trackName").asString
             val artist = json.get("artistName").asString
             val duration = json.get("duration").asDouble
-            if (key(title) !in listOfNotNull(titleKey, romanizedTitle) || key(artist) != key(LyricsMatching.artist(track)) || !duration.isFinite() || duration < 0) return@runCatching null
+            if (titles != null && (key(title) !in titles || key(artist) != key(LyricsMatching.artist(track)))) return@runCatching null
+            if (!duration.isFinite() || duration < 0) return@runCatching null
             val distance = if (track.duration > 0) abs(track.duration - duration) else Double.MAX_VALUE
             val instrumental = json.get("instrumental")?.asBoolean == true && distance <= 4
             val timed = json.get("syncedLyrics")?.takeUnless { it.isJsonNull }?.asString.orEmpty()
             val plain = json.get("plainLyrics")?.takeUnless { it.isJsonNull }?.asString.orEmpty()
             require(plain.length <= 128_000)
             val synced = timed.isNotBlank() && distance <= 4
-            val lines = if (synced) LrcParser.parse(timed) else plain.lineSequence().map { it.trim() }
-                .filter(String::isNotEmpty).take(3001).map { LyricLine(0, it) }.toList()
+            val lines = when {
+                synced -> LrcParser.parse(timed)
+                // A picked record without plain text keeps its words but drops timestamps that do not fit this recording.
+                titles == null && plain.isBlank() && timed.isNotBlank() ->
+                    LrcParser.parse(timed).filter { it.text.isNotBlank() }.map { it.copy(timeMs = 0) }
+                else -> plain.lineSequence().map { it.trim() }.filter(String::isNotEmpty).take(3001).map { LyricLine(0, it) }.toList()
+            }
             require(lines.size <= 3000 && lines.all { it.text.length <= 2000 })
             if (!instrumental && lines.none { it.text.isNotBlank() }) return@runCatching null
             val id = json.get("id").asLong
@@ -87,8 +120,4 @@ object LyricsMatching {
             val document = LyricsTiming.apply(track, LyricsDocument(id, title, artist, duration, instrumental, lines, synced && lines.isNotEmpty()))
             distance to Match(document, item)
         }.getOrNull()
-    }.sortedWith(compareBy<Pair<Double, Match>> { if (it.second.document.synced) 0 else 1 }
-        .thenBy { if (it.second.document.id == preferredSourceId) 0 else 1 }.thenBy { it.first })
-        .firstOrNull()?.second
-    }
 }

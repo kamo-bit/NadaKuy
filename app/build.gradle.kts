@@ -10,8 +10,8 @@ android {
         applicationId = "app.nada.player"
         minSdk = 26
         targetSdk = 36
-        versionCode = providers.gradleProperty("qaVersionCode").orNull?.toInt() ?: 16
-        versionName = providers.gradleProperty("qaVersionName").orNull ?: "1.8.1"
+        versionCode = providers.gradleProperty("qaVersionCode").orNull?.toInt() ?: 17
+        versionName = providers.gradleProperty("qaVersionName").orNull ?: "1.8.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

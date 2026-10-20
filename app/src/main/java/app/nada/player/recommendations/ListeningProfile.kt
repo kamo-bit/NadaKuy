@@ -46,7 +46,7 @@ internal object ListeningRecommendations {
     }
 
     /** Keep recommendations from the selected artists; don't re-suggest another upload of a heard song. */
-    fun select(pools: List<List<Track>>, seeds: List<Seed>, heard: List<Track>, source: String): List<Track> {
+    fun select(pools: List<List<Track>>, seeds: List<Seed>, heard: List<Track>, source: String, limit: Int = 12): List<Track> {
         val heardIds = heard.mapTo(mutableSetOf()) { it.id }
         fun recording(track: Track) = artistKey(track.artist) + ":" + key(track.title.replace(
             Regex("[\\[(](?:official\\s*)?(?:music\\s*)?(?:video|audio|lyrics?|mv)[\\])]", RegexOption.IGNORE_CASE), ""))
@@ -57,6 +57,6 @@ internal object ListeningRecommendations {
         } }
         // Interleave the artists so one large result set cannot crowd out the other.
         return (0 until (eligible.maxOfOrNull { it.size } ?: 0)).flatMap { index -> eligible.mapNotNull { it.getOrNull(index) } }
-            .filter { seen.add(recording(it)) }.take(12)
+            .filter { seen.add(recording(it)) }.take(limit)
     }
 }

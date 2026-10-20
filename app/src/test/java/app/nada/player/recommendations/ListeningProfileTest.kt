@@ -60,4 +60,15 @@ class ListeningProfileTest {
             a.copy(id = "duplicate"), c, song("wrong", "Unrelated")), listOf(b.copy(id = "new-b", title = "Fresh Song"))), seeds, listOf(heard), "youtube")
         assertEquals(listOf("a", "new-b", "c"), result.map { it.id })
     }
+
+    @Test fun laterBatchesPreserveTheOrderAndExcludeSongsHeardSinceTheCacheWasSaved() {
+        val tracks = (0 until 30).map { song("song-$it") }
+        val seeds = listOf(ListeningRecommendations.Seed("Singer", "singer"))
+        val first = ListeningRecommendations.select(listOf(tracks), seeds, emptyList(), "youtube", limit = 6)
+        val second = ListeningRecommendations.select(listOf(tracks), seeds, emptyList(), "youtube", limit = 12)
+        assertEquals(first, second.take(6))
+        val refreshed = ListeningRecommendations.select(listOf(tracks), seeds, listOf(tracks[2]), "youtube", limit = 12)
+        assertFalse(refreshed.any { it.id == tracks[2].id })
+        assertEquals(12, refreshed.size)
+    }
 }

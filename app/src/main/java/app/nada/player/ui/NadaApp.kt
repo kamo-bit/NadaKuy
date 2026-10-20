@@ -30,6 +30,7 @@ import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -45,6 +46,9 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -59,7 +63,7 @@ import app.nada.player.downloads.OfflineStatus
 import app.nada.player.downloads.planPlaylistDownloads
 import coil3.compose.AsyncImage
 
-private data class Genre(val title: String, val query: String, val color: Color)
+internal data class Genre(val title: String, val query: String, val color: Color)
 private val genres = listOf(
     Genre("Pop", "Pop", Color(0xFFB82B78)), Genre("Elektronik", "Electronic", Color(0xFF286F57)),
     Genre("Hip-hop", "Hip-Hop/Rap", Color(0xFFAD5824)), Genre("Jazz", "Jazz", Color(0xFF6050A4)),
@@ -259,52 +263,64 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
 
 @Composable
 private fun HomeScreen(s: MusicState, model: MusicViewModel, modifier: Modifier, options: (Track) -> Unit, genre: (Genre) -> Unit, history: () -> Unit, liked: () -> Unit, info: () -> Unit, spotify: () -> Unit) {
-    LazyColumn(modifier, contentPadding = PaddingValues(bottom = 24.dp)) {
-        item {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = info, modifier = Modifier.semantics { contentDescription = "Tentang NadaKuy" }) { BrandMark(Modifier.size(34.dp)) }
-                Row(Modifier.horizontalScroll(rememberScrollState()).padding(start = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(true, {}, label = { Text("Semua") }, shape = CircleShape, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = NadaGreen, selectedLabelColor = Color.Black))
-                    FilterChip(false, liked, label = { Text("Disukai") }, shape = CircleShape)
-                    FilterChip(false, history, label = { Text("Baru diputar") }, shape = CircleShape)
-                }
-            }
-        }
-        if (s.source == "spotify" && (!s.spotifyAuthorized || !s.spotifyConnected)) item {
-            Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(if (s.spotifyAuthorized) "Aktifkan pemutar Spotify" else "Musikmu di Spotify", style = MaterialTheme.typography.headlineMedium)
-                Text(if (s.spotifyAuthorized) "Hubungkan pemutar untuk mendengarkan lagu dari NadaKuy." else "Hubungkan akun Premium untuk mencari dan mendengarkan musik dari katalog Spotify.", color = NadaMuted)
-                Button(onClick = spotify) { Text("Hubungkan Spotify") }
-            }
-        }
-        item { PersonalizedHome(s, { tracks, index -> model.play(tracks, index) }, model::retryRecommendations) }
-        s.homeError?.let { item { ErrorBlock(it, model::refresh, s.home.isNotEmpty()) } }
-        if (s.home.isEmpty() && s.loading) item { LoadingBlock("Menemukan musik untukmu…") }
-        if (s.home.isNotEmpty()) {
+    HomeFeed(s, modifier, model::refresh, { tracks, index -> model.play(tracks, index) }, model::retryRecommendations, model::loadMoreRecommendations,
+        options, genre, history, liked, info, spotify)
+}
+
+@Composable
+internal fun HomeFeed(s: MusicState, modifier: Modifier = Modifier, refresh: () -> Unit, play: (List<Track>, Int) -> Unit,
+    retryRecommendations: () -> Unit, loadMoreRecommendations: () -> Unit, options: (Track) -> Unit = {}, genre: (Genre) -> Unit = {},
+    history: () -> Unit = {}, liked: () -> Unit = {}, info: () -> Unit = {}, spotify: () -> Unit = {}) {
+    PullToRefreshBox(isRefreshing = s.homeRefreshing, onRefresh = refresh, modifier = modifier) {
+        LazyColumn(Modifier.fillMaxSize().testTag("home-feed").semantics {
+            customActions = listOf(CustomAccessibilityAction("Segarkan rekomendasi") { refresh(); true })
+        }, contentPadding = PaddingValues(bottom = 24.dp)) {
             item {
-                val quick = (s.history.filter { it.source == s.source } + s.home).distinctBy(Track::id).take(8)
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    quick.chunked(2).forEach { pair -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        pair.forEach { track -> Row(Modifier.weight(1f).heightIn(min = 58.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xFF2A2A2A)).clickable { model.play(quick, quick.indexOf(track)) }, verticalAlignment = Alignment.CenterVertically) {
-                            Cover(track, Modifier.size(58.dp)); Text(track.title, Modifier.weight(1f).padding(8.dp), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
-                        } }
-                        if (pair.size == 1) Spacer(Modifier.weight(1f))
-                    } }
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = info, modifier = Modifier.semantics { contentDescription = "Tentang NadaKuy" }) { BrandMark(Modifier.size(34.dp)) }
+                    Row(Modifier.horizontalScroll(rememberScrollState()).padding(start = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(true, {}, label = { Text("Semua") }, shape = CircleShape, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = NadaGreen, selectedLabelColor = Color.Black))
+                        FilterChip(false, liked, label = { Text("Disukai") }, shape = CircleShape)
+                        FilterChip(false, history, label = { Text("Baru diputar") }, shape = CircleShape)
+                    }
                 }
             }
-            item { SectionTitle(when (s.source) { "spotify" -> "Jelajahi Spotify"; "youtube" -> "Musik Indonesia"; else -> "Sedang ramai" }) }
-            item { LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                items(s.home.take(16), key = Track::id) { track -> TrackCard(track) { model.play(s.home, s.home.indexOf(track)) } }
-            } }
-            if (s.history.any { it.source == s.source }) {
-                item { SectionTitle("Baru kamu putar", history) }
-                item { LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) { items(s.history.filter { it.source == s.source }.take(10), key = Track::id) { track -> TrackCard(track) { model.play(s.history, s.history.indexOf(track)) } } } }
+            if (s.source == "spotify" && (!s.spotifyAuthorized || !s.spotifyConnected)) item {
+                Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(if (s.spotifyAuthorized) "Aktifkan pemutar Spotify" else "Musikmu di Spotify", style = MaterialTheme.typography.headlineMedium)
+                    Text(if (s.spotifyAuthorized) "Hubungkan pemutar untuk mendengarkan lagu dari NadaKuy." else "Hubungkan akun Premium untuk mencari dan mendengarkan musik dari katalog Spotify.", color = NadaMuted)
+                    Button(onClick = spotify) { Text("Hubungkan Spotify") }
+                }
             }
-            if (s.home.size > 16) item { SectionTitle("Temukan favorit berikutnya") }
-            items(s.home.drop(16).take(8), key = Track::id) { track -> TrackRow(track, s, { model.play(s.home, s.home.indexOf(track)) }, { options(track) }) }
+            personalizedHome(s, play, retryRecommendations, loadMoreRecommendations)
+            s.homeError?.let { item { ErrorBlock(it, refresh, s.home.isNotEmpty()) } }
+            if (s.home.isEmpty() && s.loading) item { LoadingBlock("Menemukan musik untukmu…") }
+            if (s.home.isNotEmpty()) {
+                item {
+                    val quick = (s.history.filter { it.source == s.source } + s.home).distinctBy(Track::id).take(8)
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        quick.chunked(2).forEach { pair -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            pair.forEach { track -> Row(Modifier.weight(1f).heightIn(min = 58.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xFF2A2A2A)).clickable { play(quick, quick.indexOf(track)) }, verticalAlignment = Alignment.CenterVertically) {
+                                Cover(track, Modifier.size(58.dp)); Text(track.title, Modifier.weight(1f).padding(8.dp), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
+                            } }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        } }
+                    }
+                }
+                item { SectionTitle(when (s.source) { "spotify" -> "Jelajahi Spotify"; "youtube" -> "Musik Indonesia"; else -> "Sedang ramai" }) }
+                item { LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    items(s.home.take(16), key = Track::id) { track -> TrackCard(track) { play(s.home, s.home.indexOf(track)) } }
+                } }
+                if (s.history.any { it.source == s.source }) {
+                    item { SectionTitle("Baru kamu putar", history) }
+                    item { LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) { items(s.history.filter { it.source == s.source }.take(10), key = Track::id) { track -> TrackCard(track) { play(s.history, s.history.indexOf(track)) } } } }
+                }
+                if (s.home.size > 16) item { SectionTitle("Temukan favorit berikutnya") }
+                items(s.home.drop(16).take(8), key = Track::id) { track -> TrackRow(track, s, { play(s.home, s.home.indexOf(track)) }, { options(track) }) }
+            }
+            item { SectionTitle("Sesuai suasana hatimu") }; item { GenreGrid(genres.take(4), genre) }
+            item { Text("Musik dari ${sourceName(s)}", Modifier.fillMaxWidth().padding(top = 32.dp), color = NadaMuted, textAlign = TextAlign.Center, style = MaterialTheme.typography.labelSmall) }
         }
-        item { SectionTitle("Sesuai suasana hatimu") }; item { GenreGrid(genres.take(4), genre) }
-        item { Text("Musik dari ${sourceName(s)}", Modifier.fillMaxWidth().padding(top = 32.dp), color = NadaMuted, textAlign = TextAlign.Center, style = MaterialTheme.typography.labelSmall) }
     }
 }
 

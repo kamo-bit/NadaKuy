@@ -103,13 +103,13 @@ object YouTubeCatalog {
         }
     }
 
-    suspend fun search(query: String, videos: Boolean = false): List<Track> = withContext(Dispatchers.IO) {
+    suspend fun search(query: String, videos: Boolean = false, refresh: Boolean = false): List<Track> = withContext(Dispatchers.IO) {
         synchronized(engineLock) {
             initialize()
             val term = query.trim().take(150)
             if (term.isEmpty()) return@synchronized emptyList()
             val key = "$videos:$term"
-            searches[key]?.takeIf { System.currentTimeMillis() - it.at < 300_000 }?.let { return@synchronized it.tracks }
+            if (!refresh) searches[key]?.takeIf { System.currentTimeMillis() - it.at in 0 until 300_000 }?.let { return@synchronized it.tracks }
             val service = ServiceList.YouTube
             val handler = service.searchQHFactory.fromQuery(term, listOf(if (videos) "videos" else "music_songs"), "")
             val info = SearchInfo.getInfo(service, handler)

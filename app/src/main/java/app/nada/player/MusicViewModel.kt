@@ -22,6 +22,7 @@ import androidx.media3.session.SessionToken
 import androidx.media3.session.SessionResult
 import app.nada.player.data.LocalPlaylist
 import app.nada.player.data.MusicRepository
+import app.nada.player.data.CatalogQuery
 import app.nada.player.data.Track
 import app.nada.player.data.CollectionBackup
 import app.nada.player.data.LibraryBackup
@@ -42,6 +43,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.catch
 import app.nada.player.updates.AppUpdates
@@ -67,6 +71,7 @@ data class MusicState(
     val home: List<Track> = emptyList(), val loading: Boolean = true, val homeError: String? = null,
     val recommendations: List<Track> = emptyList(), val frequent: List<Track> = emptyList(),
     val recommendationArtists: List<String> = emptyList(), val recommendationsLoading: Boolean = false, val recommendationsError: String? = null,
+    val recommendationsHaveMore: Boolean = false, val homeRefreshing: Boolean = false,
     val query: String = "", val results: List<Track> = emptyList(), val searching: Boolean = false, val searchError: String? = null,
     val liked: List<Track> = emptyList(), val history: List<Track> = emptyList(), val playlists: List<LocalPlaylist> = emptyList(),
     val current: Track? = null, val queue: List<QueuedTrack> = emptyList(), val playing: Boolean = false,
@@ -90,6 +95,7 @@ data class CollectionTransferState(val busy: String? = null, val message: String
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = MusicRepository(application)
+    private val catalogCache = (application as NadaApplication).catalogCache
     private val lyricsRepository = LyricsRepository(application)
     private var lyricsJob: Job? = null
     var lyricsState by mutableStateOf(LyricsState())
@@ -130,6 +136,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val spotifyListening = QualifiedListening()
     private var recommendationsJob: Job? = null
     private var recommendationsKey: String? = null
+    private var recommendationPools: List<List<Track>> = emptyList()
+    private var recommendationSeeds: List<ListeningRecommendations.Seed> = emptyList()
+    private var recommendationLimit = 6
+    private var refreshJob: Job? = null
     private var genreJob: Job? = null
     private var authJob: Job? = null
     private var queueJob: Job? = null
@@ -179,7 +189,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             }.onFailure { state = state.copy(message = "Pemutar belum siap. Tutup lalu buka kembali aplikasi.") }
         }, ContextCompat.getMainExecutor(application))
         if (state.source != "audius") state = state.copy(home = emptyList())
-        refresh()
+        loadHome()
         viewModelScope.launch { while (isActive) {
             updatePlayer()
             spotifyListening.sample(state.current.takeIf { state.source == "spotify" },
@@ -189,17 +199,33 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refresh() {
-        refreshRecommendations()
-        if (homeJob?.isActive == true) return
+        if (refreshJob?.isActive == true) return
+        refreshRecommendations(force = true)
+        loadHome(force = true)
+        refreshJob = viewModelScope.launch {
+            state = state.copy(homeRefreshing = true)
+            try { listOfNotNull(homeJob, recommendationsJob).forEach { it.join() } }
+            finally { state = state.copy(homeRefreshing = false) }
+        }
+    }
+
+    private fun loadHome(force: Boolean = false) {
+        if (!force && homeJob?.isActive == true) return
+        homeJob?.cancel()
+        val source = state.source
+        val videos = state.youtubeVideos
         homeJob = viewModelScope.launch {
             state = state.copy(loading = true, homeError = null)
             try {
                 val year = java.time.Year.now().value
-                val tracks = when (state.source) {
+                val tracks = when (source) {
                     "spotify" -> if (state.spotifyAuthorized) spotifyApi.search("year:${year - 1}-$year") else emptyList()
-                    "youtube" -> YouTubeCatalog.search("musik Indonesia", state.youtubeVideos)
-                    else -> repository.trending()
+                    else -> catalogCache.load(CatalogQuery(source, videos, "home:musik Indonesia"), force,
+                        cached = { state = state.copy(home = it) }) {
+                        if (source == "youtube") YouTubeCatalog.search("musik Indonesia", videos, refresh = force) else repository.trending()
+                    }
                 }
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
                 state = state.copy(home = tracks, loading = false)
             }
             catch (error: CancellationException) { throw error }
@@ -209,6 +235,18 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     fun retryRecommendations() = refreshRecommendations(force = true)
 
+    fun loadMoreRecommendations() {
+        if (!state.recommendationsHaveMore) return
+        recommendationLimit += 6
+        publishRecommendations()
+    }
+
+    private fun publishRecommendations() {
+        val candidates = ListeningRecommendations.select(recommendationPools, recommendationSeeds,
+            listeningHistory.state.value.map { it.track } + state.history, state.source, limit = 40)
+        state = state.copy(recommendations = candidates.take(recommendationLimit), recommendationsHaveMore = candidates.size > recommendationLimit)
+    }
+
     private fun refreshRecommendations(force: Boolean = false) {
         val source = state.source
         val videos = state.youtubeVideos
@@ -217,31 +255,42 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         state = state.copy(frequent = ListeningRecommendations.frequent(stats, source))
         val key = "$source:$videos:${state.spotifyAuthorized}:${seeds.joinToString("|") { it.key }}"
         if (!force && key == recommendationsKey) {
-            state = state.copy(recommendations = ListeningRecommendations.select(seeds.map { state.recommendations }, seeds,
-                stats.map { it.track } + state.history, source))
+            publishRecommendations()
             return
+        }
+        if (key != recommendationsKey) {
+            recommendationPools = seeds.map { emptyList() }
+            recommendationSeeds = seeds
+            recommendationLimit = 6
+            state = state.copy(recommendations = emptyList(), recommendationsHaveMore = false)
         }
         recommendationsKey = key
         recommendationsJob?.cancel()
-        state = state.copy(recommendations = emptyList(), recommendationArtists = seeds.map { it.artist }, recommendationsError = null,
+        state = state.copy(recommendationArtists = seeds.map { it.artist }, recommendationsError = null,
             recommendationsLoading = seeds.isNotEmpty())
         if (seeds.isEmpty()) return
         recommendationsJob = viewModelScope.launch {
-            val pools = mutableListOf<List<Track>>()
-            var failures = 0
-            for (seed in seeds) {
+            // At most two artist seeds. Read each cache immediately, even if another needs a slow network refresh.
+            val failures = coroutineScope { seeds.mapIndexed { index, seed -> async {
+                fun accept(tracks: List<Track>) {
+                    recommendationPools = recommendationPools.mapIndexed { i, old -> if (i == index) tracks else old }
+                    publishRecommendations()
+                }
                 try {
-                    pools += when (source) {
-                        "youtube" -> YouTubeCatalog.search(seed.artist, videos)
+                    val tracks = when (source) {
                         "spotify" -> if (state.spotifyAuthorized) spotifyApi.search("artist:\"${seed.artist.replace("\"", "")}\"") else emptyList()
-                        else -> repository.search(seed.artist)
+                        else -> catalogCache.load(CatalogQuery(source, videos, "artist:${seed.artist}"), force, ::accept) {
+                            if (source == "youtube") YouTubeCatalog.search(seed.artist, videos, refresh = force) else repository.search(seed.artist)
+                        }
                     }
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    accept(tracks)
+                    false
                 } catch (error: CancellationException) { throw error }
-                catch (error: Exception) { pools += emptyList<Track>(); failures++ }
-            }
+                catch (error: Exception) { true }
+            } }.awaitAll().count { it } }
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
-            val heard = listeningHistory.state.value.map { it.track } + state.history
-            state = state.copy(recommendations = ListeningRecommendations.select(pools, seeds, heard, source), recommendationsLoading = false,
+            state = state.copy(recommendationsLoading = false,
                 recommendationsError = if (failures > 0) "Sebagian rekomendasi belum bisa dimuat. Periksa internet, lalu coba lagi." else null)
         }
     }
@@ -563,7 +612,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         state = state.copy(source = source, home = emptyList(), results = emptyList(), query = "", current = null, queue = emptyList(), playing = false, spotifyConnected = spotifyRemote.connected,
             loading = false, searching = false, genreLoading = false, homeError = null, searchError = null, genreTracks = emptyList(), genreError = null,
             sleepDeadline = 0, sleepEndOfTrack = false, sleepRemainingSeconds = 0, position = 0, duration = 0, queueError = null)
-        refresh()
+        refreshRecommendations(); loadHome()
         if (source == "spotify" && state.spotifyAuthorized) foregroundActivity?.get()?.let { spotifyRemote.connect(it, spotifyAuth.clientId, prompt = pendingSpotifyPrompt) }
     }
     fun selectYouTube(videos: Boolean) {
@@ -574,7 +623,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         else if (changed) {
             homeJob?.cancel(); searchJob?.cancel(); genreJob?.cancel()
             state = state.copy(home = emptyList(), results = emptyList(), genreTracks = emptyList())
-            refresh(); if (state.query.isNotBlank()) search(state.query)
+            refreshRecommendations(); loadHome(); if (state.query.isNotBlank()) search(state.query)
         }
     }
     private fun catalogMessage(error: Exception): String = when (state.source) {

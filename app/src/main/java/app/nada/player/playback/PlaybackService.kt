@@ -21,6 +21,11 @@ class PlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
     private var sleepTimer: SleepTimer? = null
     private var listening: ListeningObserver? = null
+    private var radio: RadioAutoplay? = null
+
+    private fun publishExtras(extras: Bundle) {
+        session?.let { it.setSessionExtras(Bundle(it.sessionExtras).apply { putAll(extras) }) }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -34,7 +39,7 @@ class PlaybackService : MediaSessionService() {
 
                 override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
                     val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
-                    if (isOwnController(controller)) { commands.add(QueueCommands.playNext); commands.add(SleepCommands.set) }
+                    if (isOwnController(controller)) { commands.add(QueueCommands.playNext); commands.add(SleepCommands.set); commands.add(RadioCommands.start); commands.add(RadioCommands.retry) }
                     return MediaSession.ConnectionResult.AcceptedResultBuilder(session).setAvailableSessionCommands(commands.build()).build()
                 }
 
@@ -46,24 +51,39 @@ class PlaybackService : MediaSessionService() {
                         val accepted = sleepTimer?.configure(args.getString(SleepCommands.MODE), args.getLong(SleepCommands.DURATION)) == true
                         return Futures.immediateFuture(SessionResult(if (accepted) SessionResult.RESULT_SUCCESS else SessionError.ERROR_BAD_VALUE))
                     }
+                    if (customCommand == RadioCommands.retry) {
+                        radio?.retry()
+                        return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                    }
+                    if (customCommand == RadioCommands.start) {
+                        val text = args.getString(QueueCommands.TRACK)?.takeIf { it.length <= 16_384 }
+                        val track = runCatching { Track.fromSaved(JSONObject(requireNotNull(text))) }.getOrNull()?.takeIf { it.playableInNada }
+                            ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
+                        radio?.start(track)
+                        return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                    }
                     if (customCommand != QueueCommands.playNext) return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
                     val track = runCatching { Track.fromSaved(JSONObject(requireNotNull(args.getString(QueueCommands.TRACK)))) }
                         .getOrNull()?.takeIf { it.playableInNada }
                         ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
                     if (player.mediaItemCount == 0) {
                         player.setMediaItem(track.toMediaItem()); player.prepare(); player.play()
-                    } else player.insertNext(track.toMediaItem())
+                    } else player.insertNext(track.toMediaItem(player.currentMediaItem?.mediaMetadata?.extras?.getString(RadioCommands.QUEUE_ID)))
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
             }).build()
-        sleepTimer = SleepTimer(playback.engine) { extras -> session?.setSessionExtras(extras) }
+        sleepTimer = SleepTimer(playback.engine, ::publishExtras)
+        val applicationState = application as app.nada.player.NadaApplication
+        val catalog = app.nada.player.recommendations.RadioCatalog(applicationState)
         val history = app.nada.player.recommendations.ListeningHistory.get(this)
+        radio = RadioAutoplay(player, applicationState.recommendationSettings, catalog::related, ::publishExtras, history = { history.state.value })
         listening = ListeningObserver(playback.engine) { history.record(it) }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
 
     override fun onDestroy() {
+        radio?.close(); radio = null
         listening?.close(); listening = null
         sleepTimer?.close(); sleepTimer = null
         session?.run { player.release(); release() }

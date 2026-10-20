@@ -6,6 +6,8 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.schabi.newpipe.extractor.NewPipe
+import org.schabi.newpipe.extractor.InfoItem
+import org.schabi.newpipe.extractor.playlist.PlaylistInfo
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.downloader.Downloader
 import org.schabi.newpipe.extractor.downloader.Request
@@ -95,6 +97,7 @@ object YouTubeCatalog {
     data class Audio(val url: String, val expiresAt: Long, val bitrate: Int, val codec: String?)
     private val searches = LinkedHashMap<String, SearchEntry>()
     private val audio = LinkedHashMap<String, Audio>()
+    private val relatedCache = LinkedHashMap<String, List<Track>>()
 
     private fun initialize() {
         if (!initialized) {
@@ -113,18 +116,48 @@ object YouTubeCatalog {
             val service = ServiceList.YouTube
             val handler = service.searchQHFactory.fromQuery(term, listOf(if (videos) "videos" else "music_songs"), "")
             val info = SearchInfo.getInfo(service, handler)
-            val entries = info.relatedItems.filterIsInstance<StreamInfoItem>().take(40).mapNotNull { item ->
-                val id = YouTubeLinks.videoId(item.url) ?: return@mapNotNull null
-                if (item.duration <= 0) return@mapNotNull null // Live streams need different queue/timer semantics.
-                YouTubeSearchRanking.Entry(Track("youtube:$id", item.name, item.uploaderName.orEmpty().ifBlank { "YouTube" },
-                    YouTubeLinks.artwork(item.thumbnails.maxByOrNull { it.height }?.url.orEmpty()), item.duration.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-                    if (videos) "YouTube" else "YouTube Music", YouTubeLinks.watch(id), "youtube"), item.isUploaderVerified)
-            }.distinctBy { it.track.id }
+            val entries = entries(info.relatedItems, videos)
             val tracks = YouTubeSearchRanking.rank(term, entries)
             // Empty upstream responses may be transient; a user retry must query the catalog again.
             if (tracks.isNotEmpty()) searches[key] = SearchEntry(System.currentTimeMillis(), tracks)
             while (searches.size > 24) searches.remove(searches.keys.first())
             tracks
+        }
+    }
+
+    private fun entries(items: List<InfoItem>, videos: Boolean): List<YouTubeSearchRanking.Entry> =
+        items.filterIsInstance<StreamInfoItem>().take(40).mapNotNull { item ->
+                val id = YouTubeLinks.videoId(item.url) ?: return@mapNotNull null
+                if (item.duration <= 0) return@mapNotNull null // Live streams need different queue/timer semantics.
+                YouTubeSearchRanking.Entry(Track("youtube:$id", item.name, item.uploaderName.orEmpty().ifBlank { "YouTube" },
+                    YouTubeLinks.artwork(item.thumbnails.maxByOrNull { it.height }?.url.orEmpty()), item.duration.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                    if (videos) "YouTube" else "YouTube Music", YouTubeLinks.watch(id), "youtube"), item.isUploaderVerified)
+        }.distinctBy { it.track.id }
+
+    private fun rememberRelated(id: String, items: List<InfoItem>) {
+        val tracks = YouTubeSearchRanking.rank("", entries(items, false))
+        if (tracks.isNotEmpty()) relatedCache[id] = tracks
+        while (relatedCache.size > 12) relatedCache.remove(relatedCache.keys.first())
+    }
+
+    /** Anonymous music mix; retain upstream order rather than turning it into an artist search. */
+    suspend fun radio(track: Track): List<Track> = withContext(Dispatchers.IO) {
+        synchronized(engineLock) {
+            initialize()
+            val id = requireNotNull(YouTubeLinks.videoId(track.id))
+            val mix = PlaylistInfo.getInfo(ServiceList.YouTube, "${YouTubeLinks.watch(id)}&list=RDAMVM$id")
+            entries(mix.relatedItems, false).map { it.track }
+        }
+    }
+
+    suspend fun related(track: Track): List<Track> = withContext(Dispatchers.IO) {
+        synchronized(engineLock) {
+            val id = requireNotNull(YouTubeLinks.videoId(track.id))
+            relatedCache[id]?.let { return@synchronized it }
+            initialize()
+            val info = StreamInfo.getInfo(ServiceList.YouTube, YouTubeLinks.watch(id))
+            rememberRelated(id, info.relatedItems.orEmpty())
+            relatedCache[id].orEmpty()
         }
     }
 
@@ -136,6 +169,7 @@ object YouTubeCatalog {
         if (!refresh) audio[id]?.takeIf { it.expiresAt > now + 60_000 }?.let { return@synchronized it }
         audio.remove(id)
         val info = StreamInfo.getInfo(ServiceList.YouTube, YouTubeLinks.watch(id))
+        rememberRelated(id, info.relatedItems.orEmpty())
         val stream = YouTubeAudioSelection.best(info.audioStreams)
             ?: throw IOException("Audio YouTube belum tersedia untuk video ini. Pilih lagu lain.")
         val url = stream.content

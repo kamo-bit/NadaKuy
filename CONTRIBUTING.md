@@ -29,6 +29,10 @@ Untuk tes di Android, sambungkan satu perangkat/emulator lalu jalankan:
 
 Pada PowerShell gunakan `.\gradlew.bat`. Tes unit mencakup peringkat pencarian, identitas YouTube, pilihan stream audio, callback Spotify, dan envelope volume. Tes Android mencakup penyimpanan koleksi, sesi Spotify, kontrol pemutar, serta identitas lagu. Beberapa tes memakai preferensi dan antrean aplikasi; gunakan emulator atau profil pengujian.
 
+Untuk radio dan rekomendasi, `RadioSelectionTest` menguji penyaringan umpan balik, identitas rekaman/artis, duplikat, sumber, dan batas kelompok. `RecommendationRankingTest` mencakup variasi artis, riwayat yang hanya membobot kandidat terkait, fallback kandidat sedikit, prefix pagination yang stabil, seed minat terkini, serta pencegahan pergeseran dari stasiun awal. `RelatedRecordingMatchTest` membedakan artis rekaman dari nama artis dalam judul cover, mengenali kredit artis pada unggahan label, serta menolak versi tribute/backing dan durasi yang tidak cocok.
+
+`RecommendationSettingsTest` memeriksa default autoplay mati, penyimpanan ulang, dan pemulihan pilihan individual. `RadioControlsUiTest` menguji aksi menu, sakelar berlabel aksesibel, serta pemulihan lagu/artis pada komponen Compose. `RadioAutoplayTest` memakai pemutar asli dengan WAV lokal dan kandidat sintetis untuk menguji transisi decoder, hasil terlambat setelah antrean diganti, pembatalan autoplay, repeat, penyaringan lagu otomatis tanpa menghapus pilihan manual, batas riwayat radio, dan acuan lagu awal saat pengisian berikutnya mencapai artis lain. Tes lokal ini tidak membuktikan ketersediaan katalog langsung. Variasi artis merupakan preferensi dengan fallback ketika kandidat sedikit, bukan kuota mutlak.
+
 Tes jaringan dan nada uji tidak berjalan secara default. Aktifkan hanya perjalanan yang diperlukan:
 
 | Argumen instrumentasi | Cakupan |
@@ -43,9 +47,12 @@ Tes jaringan dan nada uji tidak berjalan secara default. Aktifkan hanya perjalan
 | `liveLyricsTiming=true` | Enam identitas rekaman yang tersimpan; memeriksa pemilihan sumber, waktu terkoreksi, serta kesamaan hasil jaringan dan cache |
 | `acousticExport=true` | Menyimpan byte audio keenam rekaman melalui resolver/cache pemutar ke ruang privat aplikasi, beserta ID, ukuran dan SHA-256 untuk pemeriksaan akustik lokal |
 | `liveAppUpdateFixtures=true` | Pemeriksaan APK nyata, checksum/sertifikat/versi salah dan pembatalan transfer; membutuhkan fixture APK baru yang ditandatangani serta fixture bersertifikat berbeda di external files aplikasi |
-| `liveRecommendations=true` | Pencarian katalog nyata dan rekomendasi lagu lain dari artis yang sering didengar; tidak membuktikan hak kepemilikan rekaman |
+| `liveRecommendations=true` | Pencarian katalog nyata dan pemilihan rekomendasi lintas artis dari kandidat terkait dengan seed riwayat; tidak membuktikan hak kepemilikan rekaman |
 | `liveRecommendationCache=true` | Refresh katalog nyata, buka ulang cache rekomendasi, pemuatan kelompok berikutnya, serta cache disk/memori gambar album; membutuhkan riwayat dengar pada emulator |
 | `liveRecommendationPlayback=true` | Dua pemutaran katalog nyata melewati ambang 30 detik; sengaja menambah riwayat dan hitungan lokal pada profil uji |
+| `liveRadio=true` | `RadioLiveTest`: katalog YouTube Music nyata, service/MediaController dan decoder, Next/Previous, penyaringan/pemulihan lagu serta artis, sleep timer, transisi otomatis di latar belakang, dan penghapusan lagu otomatis saat autoplay dimatikan |
+| `liveRadioDiversity=true` | Mix YouTube anonim untuk Kangen, Dan, dan The Lazy Song; variasi artis pada kandidat mentah dan lagu yang sudah dicocokkan, urutan pilihan, serta refresh/cache pool katalog |
+| `liveRadioContinuation=true` | `RadioContinuationLiveTest`: 12 lagu melalui service/decoder asli, pengisian otomatis melewati kelompok pertama, variasi artis, acuan stasiun awal, serta paruh kedua di latar belakang; `radioQuery` opsional memilih lagu awal |
 
 Contoh:
 
@@ -54,6 +61,12 @@ Contoh:
 ```
 
 Untuk `liveSession`, pilih sumber YouTube di aplikasi sebelum pengujian. Tes layanan langsung bergantung pada jaringan dan ketersediaan katalog. Tes otomatis memeriksa state serta error pemutar; kualitas suara tetap perlu didengarkan pada perangkat sasaran, termasuk saat pergantian lagu dan aplikasi di latar belakang.
+
+Jalankan `RadioLiveTest` dengan `-Pandroid.testInstrumentationRunnerArguments.liveRadio=true` pada profil uji: tes mengganti antrean dan benar-benar memutar audio. Bukti metadata lagu dan transisi disimpan di `noBackupFilesDir/radio-live.txt` pada perangkat. Transisi diperiksa saat Activity berada pada `CREATED`, sementara service tetap memutar. Cakupan ini tidak membuktikan ketersediaan Audius, kemiripan semua rekomendasi, atau kualitas suara secara akustik. Untuk perubahan radio, periksa juga menu lagu, antrean, dan pemulihan pilihan melalui Pengaturan pada HP, tablet, serta ukuran font diperbesar.
+
+`RadioDiversityLiveTest` hanya berjalan dengan `liveRadioDiversity=true` dan menyimpan metadata kandidat/pilihan serta waktu refresh/cache di `noBackupFilesDir/radio-diversity-live.txt`. Periksa artis hasil pencocokan, bukan hanya nama kanal atau nama artis dalam judul. Angka variasi dari tiga seed ini tidak menjamin semua stasiun memiliki kandidat sebanyak itu atau semua alias musisi dikenali. `RecommendationCacheLiveTest` memakai ViewModel asli untuk refresh, buka ulang dan pagination, lalu memeriksa cache disk/memori Coil; waktu refresh dan buka ulang adalah pengukuran berbeda, bukan bukti percepatan keseluruhan.
+
+`RadioContinuationLiveTest` menyimpan setiap pengisian antrean dan lagu yang diputar di `noBackupFilesDir/radio-continuation-live.txt`, termasuk saat gagal. Tes memutar awal setiap lagu selama sedikitnya tiga detik, lalu melakukan seek ke 1,2 detik terakhir agar pergantian akhir lagu tetap dilakukan pemutar. Tes tidak menambahkan kandidat atau menekan Next, dan memeriksa bahwa lagu setelah kelompok pertama benar-benar diputar. Ini merupakan uji transisi yang dipercepat, bukan pengujian mendengarkan 12 lagu penuh atau penilaian akustik. Gunakan profil uji karena antrean diganti dan audio benar-benar diputar.
 
 Untuk audit lirik, jalankan `LyricsCatalogLiveTest` dengan `liveLyricsCatalog=true` dahulu, lalu `LyricsPlaybackLiveTest` dengan `liveLyricsPlayback=true` dan `lyricsSong=yoru`, `lemon`, `refrain`, `kangen`, `dan`, atau `yangterdalam`. Jalankan setiap sampel dalam proses instrumentasi terpisah. Hasil rinci disimpan lokal, bukan ditulis ke log atau repository. Sorotan diuji terhadap timestamp lirik dan posisi Media3; tes ini tidak menilai keselarasan vokal secara akustik atau menjamin bacaan khusus semua lagu.
 

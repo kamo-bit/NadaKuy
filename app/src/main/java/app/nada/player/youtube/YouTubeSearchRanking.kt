@@ -11,6 +11,7 @@ internal object YouTubeSearchRanking {
     private data class Version(val title: Regex, val query: Regex = title)
     private val versions = listOf(
         Version(Regex("\\bcover(?:s|ed)?\\b|カバー|歌ってみた")),
+        Version(Regex("\\btribute\\s+to\\b|\\b(?:piano|acoustic|instrumental)\\s+rendition\\b|\\brendition\\s+of\\b|\\b(?:made\\s+(?:famous|popular)|originally\\s+performed)\\s+by\\b|\\bbacking\\s+(?:version|track)\\b")),
         Version(Regex("(?:\\(|\\[|[-–—:]\\s*)live\\b|\\blive\\s+(?:at|from|in|on|version|performance|session|concert)\\b|\\b(?:konser|concert|tour|festival|the first take)\\b"), Regex("(?:^live$|\\blive\\s*$|\\blive\\s+(?:at|from|in|on|version|performance|session)\\b|\\b(?:konser|concert|tour|festival|the first take)\\b)")),
         Version(Regex("\\bkaraoke\\b")), Version(Regex("\\binstrumental\\b")),
         Version(Regex("\\bremix\\b")), Version(Regex("\\b(slowed|reverb)\\b")),

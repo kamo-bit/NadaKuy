@@ -12,7 +12,7 @@ import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
 import androidx.media3.session.SessionCommand
 import app.nada.player.data.Track
 
-data class QueuedTrack(val mediaIndex: Int, val track: Track)
+data class QueuedTrack(val mediaIndex: Int, val track: Track, val automatic: Boolean = false)
 
 object QueueCommands {
     val playNext = SessionCommand("app.nada.player.PLAY_NEXT", Bundle.EMPTY)
@@ -20,13 +20,14 @@ object QueueCommands {
 }
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
-fun Track.toMediaItem(): MediaItem {
+fun Track.toMediaItem(queueId: String? = null, automatic: Boolean = false): MediaItem {
     check(playableInNada) { "Unsupported playback identity" }
     val uri = if (source == "youtube") "nada-youtube://watch/${id.removePrefix("youtube:")}" else streamUrl
     return MediaItem.Builder().setMediaId(id).setUri(uri).setCustomCacheKey(id)
     .setMediaMetadata(MediaMetadata.Builder().setTitle(title).setArtist(artist)
         .setArtworkUri(artwork.takeIf(String::isNotBlank)?.toUri())
-        .setExtras(Bundle().apply { putInt("duration", duration); putString("genre", genre); putString("permalink", permalink); putString("source", source) }).build()).build()
+        .setExtras(Bundle().apply { putInt("duration", duration); putString("genre", genre); putString("permalink", permalink); putString("source", source)
+            putString(RadioCommands.QUEUE_ID, queueId); putBoolean(RadioCommands.AUTOMATIC, automatic) }).build()).build()
 }
 
 fun MediaItem.toTrack(): Track = Track(mediaId, mediaMetadata.title?.toString() ?: "Tanpa judul",
@@ -60,7 +61,7 @@ fun Player.upcomingQueue(): List<QueuedTrack> {
         indexes += index
         index = currentTimeline.getNextWindowIndex(index, queueRepeat, shuffleModeEnabled)
     }
-    return indexes.map { QueuedTrack(it, getMediaItemAt(it).toTrack()) }
+    return indexes.map { QueuedTrack(it, getMediaItemAt(it).toTrack(), getMediaItemAt(it).mediaMetadata.extras?.getBoolean(RadioCommands.AUTOMATIC) == true) }
 }
 
 /** The service owns both insertion and the shuffle permutation used by ExoPlayer. */

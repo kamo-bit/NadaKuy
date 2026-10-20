@@ -57,6 +57,7 @@ fun QueueSheet(state: MusicState, model: MusicViewModel, dismiss: () -> Unit) {
             TextButton(onClick = { openSpotify(context) }, modifier = Modifier.padding(horizontal = 16.dp)) { Text("Buka Spotify") }
         }
         LazyColumn(Modifier.fillMaxWidth().heightIn(max = 580.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+            if (state.source != "spotify") item { RadioQueueStatus(state, model::setAutoplay, model::retryRadio) }
             item { Text("Sedang diputar", Modifier.padding(horizontal = 24.dp, vertical = 12.dp), style = MaterialTheme.typography.titleMedium) }
             state.queue.firstOrNull()?.takeIf { state.queueHasCurrent }?.let { current -> item {
                 TrackRow(current.track, state, { dismiss() }, {}, false)
@@ -75,6 +76,7 @@ fun QueueSheet(state: MusicState, model: MusicViewModel, dismiss: () -> Unit) {
                     Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                         Text(entry.track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
                         Text(entry.track.artist, color = NadaMuted, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                        if (entry.automatic) Text("Ditambahkan radio", color = NadaGreen, style = MaterialTheme.typography.labelSmall)
                     }
                     if (state.source != "spotify") IconButton(onClick = { model.removeQueueItem(entry.mediaIndex) }) { Icon(Icons.Rounded.RemoveCircleOutline, "Hapus ${entry.track.title} dari antrean", tint = NadaMuted) }
                 }

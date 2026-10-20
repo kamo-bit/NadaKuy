@@ -29,34 +29,49 @@ internal class QualifiedListening {
 }
 
 internal object ListeningRecommendations {
-    data class Seed(val artist: String, val key: String)
+    private val artistDecorations = Regex("\\s*-\\s*Topic$|VEVO$|\\s+(?:official(?:\\s+channel)?|tv)$", RegexOption.IGNORE_CASE)
+    private val recordingDecorations = Regex("[\\[(](?:(?:official\\s*)?(?:music\\s*)?(?:video|audio|lyrics?|mv)|remaster(?:ed)?(?:\\s+\\d{4})?)[\\])]", RegexOption.IGNORE_CASE)
+    data class Seed(val track: Track) {
+        val artist: String = artistName(track.artist)
+        val key: String = artistKey(track.artist)
+    }
     private fun key(value: String) = Normalizer.normalize(value, Normalizer.Form.NFKC)
         .lowercase(Locale.ROOT).filter(Char::isLetterOrDigit)
-    fun artistKey(value: String): String = key(value.replace(Regex("\\s*-\\s*Topic$|VEVO$", RegexOption.IGNORE_CASE), ""))
+    fun artistName(value: String): String = value.replace(artistDecorations, "").trim()
+    fun artistKey(value: String): String = key(artistName(value))
+    fun recordingKey(track: Track): String = artistKey(track.artist) + ":" + key(track.title.replace(recordingDecorations, ""))
 
     fun frequent(stats: List<ListeningStat>, source: String): List<Track> = stats.filter { it.track.source == source && it.plays >= 2 }
         .sortedWith(compareByDescending<ListeningStat> { it.plays }.thenByDescending { it.lastPlayed }).take(10).map { it.track }
 
-    fun seeds(stats: List<ListeningStat>, history: List<Track>, source: String): List<Seed> {
-        val known = stats.filter { it.track.source == source }
-        val tracks = if (known.isNotEmpty()) known.map { it.track to it.plays.toLong() } else history.filter { it.source == source }.map { it to 1L }
-        return tracks.groupBy { artistKey(it.first.artist) }.filterKeys { it.isNotBlank() && it !in setOf("youtube", "artis", "unknownartist") }
-            .map { (id, entries) -> Triple(id, entries.first().first.artist.replace(Regex("\\s*-\\s*Topic$", RegexOption.IGNORE_CASE), "").trim(), entries.sumOf { it.second }) }
-            .sortedByDescending { it.third }.take(2).map { Seed(it.second, it.first) }
+    fun seeds(stats: List<ListeningStat>, history: List<Track>, source: String, preferences: RecommendationPreferences = RecommendationPreferences()): List<Seed> {
+        val known = stats.filter { it.track.source == source && preferences.allows(it.track) }
+        val tracks = if (known.isNotEmpty()) known.sortedWith(compareByDescending<ListeningStat> { it.plays }.thenByDescending { it.lastPlayed }).map { it.track to it.plays.coerceAtMost(100).toLong() }
+            else history.filter { it.source == source && preferences.allows(it) }.map { it to 1L }
+        val ranked = tracks.groupBy { artistKey(it.first.artist) }.filterKeys { it.isNotBlank() && it !in setOf("youtube", "artis", "unknownartist") }
+            .map { (_, entries) -> entries.first().first to entries.sumOf { it.second } }
+            .sortedByDescending { it.second }.map { it.first }
+        val recent = known.maxByOrNull { it.lastPlayed }?.track
+        // Two enduring favorites plus a recent interest; don't let lifetime counts crowd it out.
+        return (ranked.take(2) + listOfNotNull(recent).filter { track -> ranked.any { artistKey(it.artist) == artistKey(track.artist) } } + ranked)
+            .distinctBy { artistKey(it.artist) }.take(3).map(::Seed)
     }
 
-    /** Keep recommendations from the selected artists; don't re-suggest another upload of a heard song. */
-    fun select(pools: List<List<Track>>, seeds: List<Seed>, heard: List<Track>, source: String, limit: Int = 12): List<Track> {
+    /** Each pool is related to a history seed; discoveries retain that source relationship. */
+    fun select(pools: List<List<Track>>, seeds: List<Seed>, heard: List<Track>, source: String, limit: Int = 12,
+        preferences: RecommendationPreferences = RecommendationPreferences(), stats: List<ListeningStat> = emptyList()): List<Track> {
         val heardIds = heard.mapTo(mutableSetOf()) { it.id }
-        fun recording(track: Track) = artistKey(track.artist) + ":" + key(track.title.replace(
-            Regex("[\\[(](?:official\\s*)?(?:music\\s*)?(?:video|audio|lyrics?|mv)[\\])]", RegexOption.IGNORE_CASE), ""))
-        val heardRecordings = heard.mapTo(mutableSetOf(), ::recording)
+        val heardRecordings = heard.mapTo(mutableSetOf(), ::recordingKey)
         val seen = mutableSetOf<String>()
         val eligible = pools.mapIndexed { index, tracks -> tracks.filter {
-            it.source == source && artistKey(it.artist) == seeds.getOrNull(index)?.key && it.id !in heardIds && recording(it) !in heardRecordings
+            seeds.getOrNull(index) != null && it.source == source && preferences.allows(it) &&
+                (source != "spotify" || artistKey(it.artist) == seeds[index].key) &&
+                (source != "youtube" || app.nada.player.youtube.YouTubeSearchRanking.originalPreferred(it.title)) &&
+                it.id !in heardIds && recordingKey(it) !in heardRecordings
         } }
         // Interleave the artists so one large result set cannot crowd out the other.
-        return (0 until (eligible.maxOfOrNull { it.size } ?: 0)).flatMap { index -> eligible.mapNotNull { it.getOrNull(index) } }
-            .filter { seen.add(recording(it)) }.take(limit)
+        val candidates = (0 until (eligible.maxOfOrNull { it.size } ?: 0)).flatMap { index -> eligible.mapNotNull { it.getOrNull(index) } }
+            .filter { seen.add(recordingKey(it)) }
+        return RecommendationRanking.choose(candidates, emptyList(), stats, limit)
     }
 }

@@ -5,6 +5,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class YouTubeSearchRankingTest {
+    @Test fun anArtistNamedInATributeTitleDoesNotDisplaceTheActualRecording() {
+        val tribute = entry("The Lazy Song (A Tribute To Bruno Mars)", "Hitmakers Unlimited")
+        val original = entry("The Lazy Song", "Bruno Mars")
+        assertEquals(original.track, YouTubeSearchRanking.rank("Bruno Mars The Lazy Song", listOf(tribute, original)).first())
+        assertFalse(YouTubeSearchRanking.originalPreferred(tribute.track.title))
+        assertTrue(YouTubeSearchRanking.originalPreferred("Tribute"))
+    }
     private fun entry(title: String, artist: String, verified: Boolean = false) =
         YouTubeSearchRanking.Entry(Track("$title:$artist", title, artist, "", 240, "YouTube Music", source = "youtube"), verified)
 

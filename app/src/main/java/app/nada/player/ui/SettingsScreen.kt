@@ -30,7 +30,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-private enum class SettingsSection { TITLE, BACKUP, DOWNLOADS, UPDATES }
+private enum class SettingsSection { TITLE, PERSONALIZATION, BACKUP, DOWNLOADS, UPDATES }
 
 @Composable
 fun SettingsScreen(state: MusicState, model: MusicViewModel, modifier: Modifier) {
@@ -42,6 +42,7 @@ fun SettingsScreen(state: MusicState, model: MusicViewModel, modifier: Modifier)
         if (model.updatesNavigationRequest > 0) list.scrollToItem(SettingsSection.entries.indexOf(SettingsSection.UPDATES))
     }
     var actionError by remember { mutableStateOf<String?>(null) }
+    var choices by remember { mutableStateOf(false) }
     val installer = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode != Activity.RESULT_OK) model.updateInstallError("Pemasangan belum selesai. Paket tetap tersimpan; ketuk Pasang pembaruan untuk mencoba lagi.")
     }
@@ -75,13 +76,24 @@ fun SettingsScreen(state: MusicState, model: MusicViewModel, modifier: Modifier)
     Box(modifier, contentAlignment = Alignment.TopCenter) {
     LazyColumn(Modifier.fillMaxHeight().widthIn(max = 720.dp).fillMaxWidth(), state = list, contentPadding = PaddingValues(bottom = 32.dp)) {
       items(SettingsSection.entries, key = { it.name }) { section ->
-        if (section == SettingsSection.DOWNLOADS || section == SettingsSection.UPDATES) {
+        if (section == SettingsSection.BACKUP || section == SettingsSection.DOWNLOADS || section == SettingsSection.UPDATES) {
             HorizontalDivider(Modifier.padding(horizontal = 24.dp, vertical = 28.dp), color = MaterialTheme.colorScheme.outlineVariant)
         }
         when (section) {
         SettingsSection.TITLE -> {
             Text("Pengaturan", Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 24.dp), style = MaterialTheme.typography.headlineMedium)
             actionError?.let { Text(it, Modifier.padding(horizontal = 24.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.error) }
+        }
+        SettingsSection.PERSONALIZATION -> {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Radio dan rekomendasi", style = MaterialTheme.typography.titleLarge)
+                AutoplayControl(state.recommendationPreferences.autoplay, model::setAutoplay)
+                Text("Pilihan Kurang suka dan artis yang disembunyikan berlaku untuk Pilihan untukmu, Radio Lagu, dan autoplay.",
+                    color = NadaMuted, style = MaterialTheme.typography.bodyMedium)
+                OutlinedButton(onClick = { choices = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                    Text("Kelola kontrol rekomendasi")
+                }
+            }
         }
         SettingsSection.BACKUP -> {
             Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -130,6 +142,7 @@ fun SettingsScreen(state: MusicState, model: MusicViewModel, modifier: Modifier)
       }
     }
     }
+    if (choices) RecommendationChoicesSheet(state.recommendationPreferences, model::toggleDislike, model::toggleBlockedArtist) { choices = false }
     transfer.pending?.let { backup ->
         val collection = backup.collection
         val date = runCatching { DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm", Locale.getDefault())

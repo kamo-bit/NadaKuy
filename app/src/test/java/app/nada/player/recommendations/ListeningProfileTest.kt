@@ -50,20 +50,20 @@ class ListeningProfileTest {
         assertTrue(ListeningRecommendations.seeds(emptyList(), emptyList(), "youtube").isEmpty())
     }
 
-    @Test fun suggestionsExcludeHeardDuplicateAndUnrelatedSongsAndInterleaveArtists() {
+    @Test fun relatedPoolsIncludeCrossArtistSongsAndExcludeHeardDuplicates() {
         val heard = song("heard", "Singer", "Old Song")
         val a = song("a", "Singer - Topic", "New Song")
         val b = song("b", "Other", "Other Song")
         val c = song("c", "Singer", "Another Song")
         val seeds = ListeningRecommendations.seeds(listOf(ListeningStat(heard, 5, 1), ListeningStat(b, 2, 1)), emptyList(), "youtube")
         val result = ListeningRecommendations.select(listOf(listOf(heard.copy(id = "reupload", title = "Old Song (Official Audio)"), a,
-            a.copy(id = "duplicate"), c, song("wrong", "Unrelated")), listOf(b.copy(id = "new-b", title = "Fresh Song"))), seeds, listOf(heard), "youtube")
-        assertEquals(listOf("a", "new-b", "c"), result.map { it.id })
+            a.copy(id = "duplicate"), c, song("neighbor", "Neighbor")), listOf(b.copy(id = "new-b", title = "Fresh Song"))), seeds, listOf(heard), "youtube")
+        assertEquals(listOf("a", "new-b", "neighbor", "c"), result.map { it.id })
     }
 
     @Test fun laterBatchesPreserveTheOrderAndExcludeSongsHeardSinceTheCacheWasSaved() {
         val tracks = (0 until 30).map { song("song-$it") }
-        val seeds = listOf(ListeningRecommendations.Seed("Singer", "singer"))
+        val seeds = listOf(ListeningRecommendations.Seed(song("seed")))
         val first = ListeningRecommendations.select(listOf(tracks), seeds, emptyList(), "youtube", limit = 6)
         val second = ListeningRecommendations.select(listOf(tracks), seeds, emptyList(), "youtube", limit = 12)
         assertEquals(first, second.take(6))

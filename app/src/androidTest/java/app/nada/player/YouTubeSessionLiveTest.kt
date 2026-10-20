@@ -148,7 +148,7 @@ class YouTubeSessionLiveTest {
             assertEquals(0, timer.get(10, TimeUnit.SECONDS).resultCode)
             main {
                 controller.stop(); controller.clearMediaItems()
-                controller.setMediaItems(tracks.map(Track::toMediaItem))
+                controller.setMediaItems(tracks.map { it.toMediaItem() })
                 controller.repeatMode = Player.REPEAT_MODE_OFF
                 controller.shuffleModeEnabled = false
                 controller.prepare(); controller.play()

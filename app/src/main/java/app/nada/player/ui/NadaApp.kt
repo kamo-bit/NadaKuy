@@ -180,11 +180,16 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
         if (fullPlayer) SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(12.dp))
     }
     options?.let { track ->
-        ModalBottomSheet(onDismissRequest = { options = null }, containerColor = NadaSurface, properties = NadaSheetProperties) {
+        ModalBottomSheet(onDismissRequest = { options = null }, containerColor = NadaSurface, properties = NadaSheetProperties,
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
             TrackRow(track, s, { model.play(listOf(track)); options = null }, {}, false)
             HorizontalDivider(Modifier.padding(16.dp), color = Color(0xFF393939))
             SheetAction(if (s.liked.any { it.id == track.id }) "Hapus dari lagu disukai" else "Simpan ke lagu disukai", Icons.Rounded.FavoriteBorder) { model.toggleLike(track); options = null }
             SheetAction(if (track.source == "spotify") "Tambahkan ke antrean Spotify" else "Putar berikutnya", Icons.AutoMirrored.Rounded.QueueMusic) { model.playNext(track); options = null }
+            RadioTrackActions(track, s.recommendationPreferences,
+                { model.startRadio(track); options = null; showQueue = true },
+                { model.toggleDislike(track); options = null }, { model.toggleBlockedArtist(track.artist); options = null })
             SheetAction("Tambahkan ke playlist", Icons.AutoMirrored.Rounded.PlaylistAdd) { options = null; addTrack = track }
             if (track.playableInNada) {
                 val saved = s.offline.tracks.find { it.id == track.id }
@@ -217,6 +222,7 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
                 }
             }
             Spacer(Modifier.height(24.dp))
+            }
         }
     }
     if (showQueue) QueueSheet(s, model) { showQueue = false }
@@ -292,7 +298,7 @@ internal fun HomeFeed(s: MusicState, modifier: Modifier = Modifier, refresh: () 
                     Button(onClick = spotify) { Text("Hubungkan Spotify") }
                 }
             }
-            personalizedHome(s, play, retryRecommendations, loadMoreRecommendations)
+            personalizedHome(s, play, retryRecommendations, loadMoreRecommendations, options)
             s.homeError?.let { item { ErrorBlock(it, refresh, s.home.isNotEmpty()) } }
             if (s.home.isEmpty() && s.loading) item { LoadingBlock("Menemukan musik untukmu…") }
             if (s.home.isNotEmpty()) {
@@ -527,10 +533,14 @@ internal fun TrackRow(track: Track, state: MusicState, play: () -> Unit, options
 }
 
 @Composable
-internal fun TrackCard(track: Track, play: () -> Unit) {
+internal fun TrackCard(track: Track, options: (() -> Unit)? = null, play: () -> Unit) {
     Column(Modifier.width(158.dp).clickable(onClick = play)) {
         Cover(track, Modifier.size(158.dp).clip(RoundedCornerShape(6.dp)))
-        Text(track.title, Modifier.padding(top = 10.dp), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+        if (options == null) Text(track.title, Modifier.padding(top = 10.dp), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+        else Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(track.title, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+            IconButton(onClick = options) { Icon(Icons.Rounded.MoreVert, "Opsi ${track.title}", tint = NadaMuted) }
+        }
         Text(track.artist, Modifier.padding(top = 4.dp), color = NadaMuted, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
     }
 }

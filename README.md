@@ -13,7 +13,8 @@ APK ini merupakan build debug untuk pengujian, dengan sertifikat lokal yang sama
 ## Fitur
 
 - Pencarian lagu dan artis, dengan peringkat yang mengutamakan kecocokan judul, artis, dan rekaman asli.
-- Rekomendasi lokal dari artis yang sering didengarkan dan bagian **Sering kamu putar** di Beranda.
+- Rekomendasi lagu terkait lintas artis dari favorit dan minat dengar terkini, serta bagian **Sering kamu putar** di Beranda.
+- Radio Lagu dan autoplay, dengan kontrol lokal **Kurang suka** serta **Jangan rekomendasikan artis ini** yang bisa dipulihkan.
 - Pemutaran di latar belakang, kontrol notifikasi, antrean, shuffle, repeat, dan sleep timer.
 - Lagu disukai, playlist, riwayat pemutaran, dan riwayat pencarian yang disimpan di perangkat.
 - Unduhan audio untuk diputar offline di NadaKuy, dengan progres, jeda/lanjutkan, coba lagi, dan penghapusan salinan lokal.
@@ -28,11 +29,25 @@ YouTube Music menjadi sumber awal. YouTube dan Audius tidak memerlukan API key p
 
 ## Rekomendasi dan pencarian
 
-**Pilihan untukmu** mencari lagu lain dari maksimal dua artis yang paling sering didengarkan. Saat belum ada hitungan pemutaran, riwayat yang sudah tersimpan menjadi titik awal. Lagu yang ada dalam riwayat atau statistik tidak disarankan kembali, termasuk unggahan lain dengan judul/artis yang sama. Bagian **Sering kamu putar** muncul setelah sebuah lagu memiliki setidaknya dua pemutaran yang dihitung.
+**Pilihan untukmu** memakai maksimal tiga rekaman sebagai titik awal, dengan mengutamakan dua artis favorit berdasarkan hitungan dengar dan satu minat terkini. Saat belum ada hitungan pemutaran, riwayat yang sudah tersimpan menjadi titik awal. YouTube dan Audius mengambil kandidat terkait yang dapat berasal dari artis lain; Spotify opsional tetap mencari lagu dari artis titik awal. Lagu yang ada dalam riwayat atau statistik tidak disarankan kembali, termasuk unggahan lain dengan judul/artis yang sama. Bagian **Sering kamu putar** muncul setelah sebuah lagu memiliki setidaknya dua pemutaran yang dihitung.
 
-Satu pemutaran dihitung setelah 30 detik audio benar-benar berjalan, atau setengah durasi untuk lagu yang lebih pendek. Jeda, buffering dan lompatan posisi tidak menambah waktu dengar. Penghitungan YouTube/Audius dimiliki service pemutar sehingga tetap bekerja di latar belakang; Spotify dihitung selama App Remote terhubung dan pemutarannya teramati. Statistik dibatasi 500 rekaman serta ukuran data 1 MiB, disimpan di perangkat dan tidak masuk backup koleksi atau backup Android. Pencarian rekomendasi mengirim nama artis ke katalog yang dipilih, tanpa mengirim seluruh statistik.
+Satu pemutaran dihitung setelah 30 detik audio benar-benar berjalan, atau setengah durasi untuk lagu yang lebih pendek. Jeda, buffering dan lompatan posisi tidak menambah waktu dengar. Penghitungan YouTube/Audius dimiliki service pemutar sehingga tetap bekerja di latar belakang; Spotify dihitung selama App Remote terhubung dan pemutarannya teramati. Statistik dibatasi 500 rekaman serta ukuran data 1 MiB, disimpan di perangkat dan tidak masuk backup koleksi atau backup Android. Permintaan rekomendasi memakai metadata lagu atau artis yang diperlukan oleh katalog yang dipilih, tanpa mengirim seluruh statistik.
 
 Pencarian YouTube/YouTube Music mendahulukan kecocokan permintaan, lalu versi yang diminta dan rekaman dengan petunjuk studio/resmi. Cover, live, karaoke, remix, versi dipercepat/diperlambat dan kompilasi diturunkan ketika tidak diminta. Jika pengguna menulis **live**, **cover**, atau jenis versi lain, permintaan itu tetap dihormati. Petunjuk kanal Topic, VEVO, unggahan terverifikasi dan judul resmi membantu pengurutan, tetapi tidak membuktikan siapa pemilik rekaman asli. Versi alternatif tetap tersedia.
+
+## Radio Lagu dan autoplay
+
+Buka menu tiga titik pada lagu YouTube Music, YouTube, atau Audius, lalu pilih **Mulai Radio Lagu**. Lagu tersebut mulai diputar, menggantikan antrean sebelumnya, dan autoplay diaktifkan untuk menambahkan lagu berikutnya secara otomatis. Lagu tambahan ditandai **Ditambahkan radio** pada antrean.
+
+Autoplay awalnya mati. Ubah melalui **Pengaturan → Radio dan rekomendasi** atau sakelar **Autoplay** pada antrean. Autoplay menambahkan lagu setelah antrean pilihanmu; repeat menunda pengisian otomatis sampai repeat dimatikan. Mematikan autoplay membuang lagu otomatis yang belum diputar, sambil mempertahankan lagu saat ini dan lagu yang kamu tambahkan sendiri.
+
+Setiap pengisian menambahkan maksimal enam lagu, bukan membatasi total radio menjadi enam lagu. Saat tersisa satu lagu berikutnya, autoplay mencoba mengisi antrean lagi. Jumlah tambahan bergantung pada kandidat yang sesuai; jika kandidat habis atau pemuatan gagal, gunakan **Coba lagi** atau pilih lagu awal lain.
+
+Pada menu lagu, pilih **Kurang suka** untuk menyembunyikan rekaman tersebut atau **Jangan rekomendasikan artis ini** untuk menyembunyikan artis. Pilihan ini berlaku pada **Pilihan untukmu**, Radio Lagu, dan autoplay; lagu tetap tersedia di pencarian dan koleksi, serta tidak menghapus pilihan manual dari antrean atau menghentikan lagu saat ini. Buka **Pengaturan → Radio dan rekomendasi → Kelola kontrol rekomendasi**, lalu tekan **Pulihkan** pada lagu atau artis untuk membatalkan satu pilihan. Kontrol disimpan lokal tanpa akun aplikasi atau API key pengguna.
+
+Radio YouTube mengambil mix musik publik tanpa akun berdasarkan lagu awal, lalu mencocokkan kandidat kembali di katalog lagu YouTube Music untuk mengenali artis rekamannya; petunjuk lagu terkait menjadi cadangan jika mix tidak tersedia. Audius menggabungkan pencarian artis dan tren genre. Pengisian berikutnya menelusuri beberapa artis dari mix awal, dengan mengutamakan artis yang belum banyak muncul belakangan. Lagu awal tetap menjadi acuan, termasuk ketika memutar artis lain. Riwayat dengar memberi bobot tambahan pada kandidat terkait, tanpa memasukkan favorit di luar kandidat tersebut.
+
+Urutan radio dan rekomendasi mengutamakan variasi artis serta berusaha menghindari artis yang sama berturut-turut. Jika kandidat sedikit, artis dapat berulang agar pemutaran tetap berlanjut. Hasil katalog disimpan dalam cache terbatas; kontrol lokal dan riwayat diterapkan saat memilih lagu. Kemiripan lagu, pencocokan rekaman/artis, dan peringkat versi asli memakai heuristik serta metadata sumber; alias musisi belum selalu dikenali sebagai artis yang sama, dan hasil tidak menjamin rekaman resmi atau kemiripan yang selalu tepat. Radio memerlukan koneksi dan bergantung pada ketersediaan katalog.
 
 ## Mendengarkan offline
 

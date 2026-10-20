@@ -14,6 +14,14 @@ Identitas sumber dipertahankan pada lagu. Untuk YouTube, URL media sementara dis
 
 Spotify menggunakan App Remote dan pemutaran berlangsung melalui aplikasi Spotify resmi. Resolver YouTube/Audius tidak menerima identitas lagu Spotify.
 
+## Radio dan rekomendasi
+
+`ListeningHistory` memiliki hitungan pemutaran yang memenuhi ambang dengar. `ListeningRecommendations` memilih hingga tiga rekaman dari favorit dan minat terkini. `RadioCatalog` menyediakan pool kandidat terkait yang disimpan pada cache katalog; YouTube memakai mix anonim dan pencocokan kembali pada metadata katalog lagu, sedangkan Audius memakai pencarian artis serta tren genre. `RecommendationRanking` mengurutkan kandidat tersebut dengan bobot riwayat terbatas dan variasi artis. Statistik tidak menambahkan lagu di luar kandidat terkait. Cabang Spotify tetap mencari lagu dari artis seed.
+
+`RadioAutoplay` dimiliki service dan mengisi antrean ketika tersisa paling banyak satu lagu berikutnya. Setiap pengisian menambahkan hingga enam lagu. Lagu awal tetap menjadi acuan; pengisian lanjutan menelusuri hingga tiga pool, termasuk dua artis lain dari mix awal yang lebih jarang muncul dalam sepuluh entri antrean terakhir. Kandidat perlu tetap berada pada lingkungan artis mix lagu awal. Batas variasi dilonggarkan bila kandidat sedikit.
+
+`RecommendationSettings` memiliki autoplay, rekaman kurang disukai, serta artis yang disembunyikan. Pilihan diterapkan pada rekomendasi dan lagu otomatis, sementara antrean manual dan lagu yang sedang diputar dipertahankan. Identitas generasi/antrean mencegah hasil pemuatan yang terlambat masuk ke antrean pengganti. Repeat menunda pengisian; pembatalan dan penghentian service membatalkan pekerjaan yang dimiliki radio.
+
 ## Unduhan offline
 
 `OfflineLibrary` memiliki satu `DownloadManager`, `StandaloneDatabaseProvider`, dan `SimpleCache` dengan `NoOpCacheEvictor` selama proses aplikasi berjalan. `OfflineDownloadService` menjalankan transfer di latar belakang sebagai service `dataSync`, dengan dua unduhan paralel dan scheduler Android untuk persyaratan jaringan.
@@ -34,7 +42,7 @@ Playlist, lagu disukai, riwayat, dan pilihan sumber disimpan dalam preferensi pe
 
 ## Pemeriksaan pembaruan
 
-`AppUpdates` mengambil rilis stabil terbaru dari endpoint publik GitHub untuk `kamo-bit/NadaKuy`. Versi dibandingkan sebagai tiga komponen bilangan. Tautan rilis dan APK harus tepat berasal dari repository tersebut; draft, prerelease, dan versi tak dikenal tidak ditawarkan. UI mengambil versi terpasang dari PackageManager dan melakukan pemeriksaan hanya atas permintaan pengguna. Pengunduhan dibuka melalui browser, sementara Android tetap menangani persetujuan pemasangan dan pemeriksaan sertifikat APK.
+`AppUpdates` mengambil rilis stabil terbaru dari endpoint publik GitHub untuk `kamo-bit/NadaKuy`. Versi dibandingkan sebagai tiga komponen bilangan. Tautan rilis dan APK harus tepat berasal dari repository tersebut; draft, prerelease, dan versi tak dikenal tidak ditawarkan. UI mengambil versi terpasang dari PackageManager dan melakukan pemeriksaan hanya atas permintaan pengguna. `AppUpdater` serta worker mengelola unduhan di ruang privat aplikasi. `UpdateDownloader` memeriksa ukuran, SHA-256 dari metadata aset GitHub, paket, versi, serta sertifikat sebelum paket dapat dibagikan melalui `UpdateFileProvider`. Android menangani izin dan konfirmasi pemasangan. Paket yang sudah diperiksa dapat dipasang kembali setelah dialog pemasangan dibatalkan tanpa diunduh ulang.
 
 ## Lirik
 

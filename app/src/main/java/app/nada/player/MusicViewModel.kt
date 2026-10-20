@@ -66,12 +66,16 @@ import app.nada.player.youtube.YouTubeCatalog
 import app.nada.player.recommendations.ListeningHistory
 import app.nada.player.recommendations.ListeningRecommendations
 import app.nada.player.recommendations.QualifiedListening
+import app.nada.player.recommendations.RecommendationPreferences
+import app.nada.player.playback.RadioCommands
 
 data class MusicState(
     val home: List<Track> = emptyList(), val loading: Boolean = true, val homeError: String? = null,
     val recommendations: List<Track> = emptyList(), val frequent: List<Track> = emptyList(),
     val recommendationArtists: List<String> = emptyList(), val recommendationsLoading: Boolean = false, val recommendationsError: String? = null,
     val recommendationsHaveMore: Boolean = false, val homeRefreshing: Boolean = false,
+    val recommendationPreferences: RecommendationPreferences = RecommendationPreferences(),
+    val radioTitle: String? = null, val radioLoading: Boolean = false, val radioError: String? = null,
     val query: String = "", val results: List<Track> = emptyList(), val searching: Boolean = false, val searchError: String? = null,
     val liked: List<Track> = emptyList(), val history: List<Track> = emptyList(), val playlists: List<LocalPlaylist> = emptyList(),
     val current: Track? = null, val queue: List<QueuedTrack> = emptyList(), val playing: Boolean = false,
@@ -96,6 +100,8 @@ data class CollectionTransferState(val busy: String? = null, val message: String
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = MusicRepository(application)
     private val catalogCache = (application as NadaApplication).catalogCache
+    private val recommendationCatalog = app.nada.player.recommendations.RadioCatalog(application as NadaApplication)
+    private val recommendationSettings = (application as NadaApplication).recommendationSettings
     private val lyricsRepository = LyricsRepository(application)
     private var lyricsJob: Job? = null
     var lyricsState by mutableStateOf(LyricsState())
@@ -174,6 +180,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
+        viewModelScope.launch { recommendationSettings.state.collect {
+            state = state.copy(recommendationPreferences = it)
+            refreshRecommendations()
+        } }
         viewModelScope.launch { listeningHistory.state.collect { refreshRecommendations() } }
         viewModelScope.launch {
             appUpdater.state.catch { updateActionError = "Status pembaruan belum bisa dibaca. Buka ulang aplikasi." }
@@ -243,7 +253,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun publishRecommendations() {
         val candidates = ListeningRecommendations.select(recommendationPools, recommendationSeeds,
-            listeningHistory.state.value.map { it.track } + state.history, state.source, limit = 40)
+            listeningHistory.state.value.map { it.track } + state.history, state.source, limit = 40, preferences = state.recommendationPreferences, stats = listeningHistory.state.value)
         state = state.copy(recommendations = candidates.take(recommendationLimit), recommendationsHaveMore = candidates.size > recommendationLimit)
     }
 
@@ -251,9 +261,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val source = state.source
         val videos = state.youtubeVideos
         val stats = listeningHistory.state.value
-        val seeds = ListeningRecommendations.seeds(stats, state.history, source)
+        val seeds = ListeningRecommendations.seeds(stats, state.history, source, state.recommendationPreferences)
         state = state.copy(frequent = ListeningRecommendations.frequent(stats, source))
-        val key = "$source:$videos:${state.spotifyAuthorized}:${seeds.joinToString("|") { it.key }}"
+        val key = "$source:$videos:${state.spotifyAuthorized}:${seeds.joinToString("|") { it.track.id }}"
         if (!force && key == recommendationsKey) {
             publishRecommendations()
             return
@@ -270,7 +280,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             recommendationsLoading = seeds.isNotEmpty())
         if (seeds.isEmpty()) return
         recommendationsJob = viewModelScope.launch {
-            // At most two artist seeds. Read each cache immediately, even if another needs a slow network refresh.
+            // Related pools from up to three history recordings; publish each cached pool immediately.
             val failures = coroutineScope { seeds.mapIndexed { index, seed -> async {
                 fun accept(tracks: List<Track>) {
                     recommendationPools = recommendationPools.mapIndexed { i, old -> if (i == index) tracks else old }
@@ -279,9 +289,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 try {
                     val tracks = when (source) {
                         "spotify" -> if (state.spotifyAuthorized) spotifyApi.search("artist:\"${seed.artist.replace("\"", "")}\"") else emptyList()
-                        else -> catalogCache.load(CatalogQuery(source, videos, "artist:${seed.artist}"), force, ::accept) {
-                            if (source == "youtube") YouTubeCatalog.search(seed.artist, videos, refresh = force) else repository.search(seed.artist)
-                        }
+                        else -> recommendationCatalog.pool(seed.track, force, ::accept)
                     }
                     kotlinx.coroutines.currentCoroutineContext().ensureActive()
                     accept(tracks)
@@ -337,7 +345,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (state.source != selected.source) selectSource(selected.source)
         val player = controller ?: run { state = state.copy(message = "Pemutar sedang disiapkan. Coba sebentar lagi."); return }
         val local = tracks.filter { it.playableInNada }
-        player.setMediaItems(local.map { it.toMediaItem() }, local.indexOf(selected).coerceAtLeast(0), 0)
+        val queueId = java.util.UUID.randomUUID().toString()
+        player.setMediaItems(local.map { it.toMediaItem(queueId) }, local.indexOf(selected).coerceAtLeast(0), 0)
         player.shuffleModeEnabled = shuffled
         player.prepare()
         player.play()
@@ -345,6 +354,28 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun togglePlayback() { if (state.source == "spotify") spotifyRemote.toggle() else controller?.togglePlayback() }
+    fun startRadio(track: Track) {
+        if (!track.playableInNada) return
+        if (state.source != track.source) selectSource(track.source)
+        val player = controller ?: run { state = state.copy(message = "Pemutar sedang disiapkan. Coba sebentar lagi."); return }
+        val result = player.sendCustomCommand(RadioCommands.start, Bundle().apply { putString(QueueCommands.TRACK, track.toJson().toString()) })
+        result.addListener({
+            if (runCatching { result.get().resultCode != SessionResult.RESULT_SUCCESS }.getOrDefault(true))
+                state = state.copy(message = "Radio belum dapat dimulai. Coba lagi.")
+        }, ContextCompat.getMainExecutor(getApplication()))
+    }
+    fun retryRadio() { controller?.sendCustomCommand(RadioCommands.retry, Bundle.EMPTY) }
+    fun setAutoplay(enabled: Boolean) = recommendationSettings.setAutoplay(enabled)
+    fun toggleDislike(track: Track) {
+        val undo = recommendationSettings.state.value.dislikes(track)
+        recommendationSettings.toggleDislike(track)
+        state = state.copy(message = if (undo) "Lagu boleh direkomendasikan lagi" else "Lagu ini tidak akan direkomendasikan lagi")
+    }
+    fun toggleBlockedArtist(artist: String) {
+        val undo = recommendationSettings.state.value.blocks(artist)
+        recommendationSettings.toggleArtist(artist)
+        state = state.copy(message = if (undo) "Artis boleh direkomendasikan lagi" else "Artis ini tidak akan direkomendasikan lagi")
+    }
     fun loadLyrics(track: Track, refresh: Boolean = false, automatic: Boolean = false) {
         if (!refresh && lyricsState.trackId == track.id && (lyricsState.loading || lyricsState.document != null)) return
         val previous = lyricsState.takeIf { it.trackId == track.id && it.document != null }
@@ -544,7 +575,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     fun rememberSearch(query: String = state.query) { repository.rememberSearch(query); state = state.copy(recentSearches = repository.searchHistory) }
     fun clearSearchHistory() { repository.clearSearchHistory(); state = state.copy(recentSearches = emptyList()) }
-    fun next() { if (state.source == "spotify") spotifyRemote.next() else controller?.let { if (it.hasNextMediaItem()) it.seekToNextMediaItem() else it.seekTo(0) } }
+    fun next() { if (state.source == "spotify") spotifyRemote.next() else controller?.let {
+        if (it.hasNextMediaItem()) it.seekToNextMediaItem()
+        else if (state.recommendationPreferences.autoplay) {
+            if (state.radioLoading) state = state.copy(message = "Menyiapkan lagu berikutnya…") else retryRadio()
+        } else it.seekTo(0)
+    } }
     fun previous() { if (state.source == "spotify") spotifyRemote.previous() else controller?.let { if (it.currentPosition > 3000 || !it.hasPreviousMediaItem()) it.seekTo(0) else it.seekToPreviousMediaItem() } }
     fun seek(position: Long) { if (state.source == "spotify") spotifyRemote.seek(position) else controller?.seekTo(position.coerceAtLeast(0)); updatePlayer() }
     fun toggleShuffle() { if (state.source == "spotify") spotifyRemote.shuffle() else controller?.let { it.shuffleModeEnabled = !it.shuffleModeEnabled } }
@@ -591,6 +627,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 shuffle = player.shuffleModeEnabled, repeat = player.repeatMode,
                 canSeek = true, canNext = true, canPrevious = true, canShuffle = true, canRepeat = true,
                 sleepDeadline = player.sessionExtras.getLong(SleepCommands.DEADLINE), sleepEndOfTrack = player.sessionExtras.getBoolean(SleepCommands.END_OF_TRACK),
+                radioTitle = player.sessionExtras.getString(RadioCommands.TITLE), radioLoading = player.sessionExtras.getBoolean(RadioCommands.LOADING),
+                radioError = player.sessionExtras.getString(RadioCommands.ERROR),
                 sleepRemainingSeconds = ((player.sessionExtras.getLong(SleepCommands.DEADLINE) - SystemClock.elapsedRealtime()).coerceAtLeast(0) + 999) / 1000,
                 queue = player.upcomingQueue(), queueHasCurrent = true)
         }

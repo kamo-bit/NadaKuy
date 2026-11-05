@@ -29,5 +29,6 @@ keystore.properties
 reference/
 releases/
 private/
+.impeccable/review/
 *.log
 *.hprof

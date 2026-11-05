@@ -8,7 +8,8 @@ import app.nada.player.youtube.YouTubeCatalog
 import app.nada.player.youtube.YouTubeSearchRanking
 import kotlinx.coroutines.CancellationException
 
-internal data class RadioRequest(val anchor: Track, val frontier: Track, val recent: List<Track> = emptyList()) {
+internal data class RadioRequest(val anchor: Track, val frontier: Track, val recent: List<Track> = emptyList(),
+    val excluded: List<Track> = recent, val stationId: String? = null) {
     fun expansionSeeds(origin: List<Track>): List<Track> {
         if (frontier.id == anchor.id || frontier.source != anchor.source) return emptyList()
         val window = recent.takeLast(10).map { ListeningRecommendations.artistKey(it.artist) }
@@ -33,8 +34,22 @@ internal data class RadioRequest(val anchor: Track, val frontier: Track, val rec
 
 internal class RadioCatalog(private val app: NadaApplication) {
     private val audius = MusicRepository(app)
+    private var continuationKey: List<String?>? = null
+    private var continuation: RadioContinuation? = null
 
     suspend fun related(request: RadioRequest): List<Track> {
+        if (request.anchor.source == "youtube") {
+            val key = listOf(request.stationId, request.anchor.id, request.anchor.source)
+            if (key != continuationKey) {
+                continuationKey = key
+                continuation = RadioContinuation(request.anchor, YouTubeCatalog::radioPages) { hint ->
+                    val matching = RelatedRecordingMatch(hint)
+                    matching.select(YouTubeCatalog.search(matching.query))
+                }
+            }
+            // Capture the owner before suspension: cancelled old stations cannot mutate the new one.
+            return checkNotNull(continuation).next(request, app.recommendationSettings.state.value)
+        }
         val origin = pool(request.anchor)
         val nearby = mutableListOf<Track>()
         for (seed in request.expansionSeeds(origin)) {
@@ -85,12 +100,12 @@ internal class RelatedRecordingMatch(private val hint: Track) {
 
 internal object RadioSelection {
     fun select(candidates: List<Track>, seed: Track, excluded: List<Track>, preferences: RecommendationPreferences,
-        stats: List<ListeningStat> = emptyList(), limit: Int = 6): List<Track> {
+        stats: List<ListeningStat> = emptyList(), limit: Int = 6, recent: List<Track> = excluded): List<Track> {
         val ids = excluded.mapTo(hashSetOf()) { it.id }
         val recordings = excluded.mapTo(hashSetOf(), ListeningRecommendations::recordingKey)
         val eligible = candidates.filter { it.source == seed.source && it.playableInNada && it.duration in 30..900 && preferences.allows(it) &&
             (it.source != "youtube" || YouTubeSearchRanking.originalPreferred(it.title)) &&
             it.id !in ids && recordings.add(ListeningRecommendations.recordingKey(it)) }
-        return RecommendationRanking.choose(eligible, excluded.ifEmpty { listOf(seed) }, stats, limit)
+        return RecommendationRanking.choose(eligible, recent.ifEmpty { listOf(seed) }, stats, limit)
     }
 }

@@ -33,6 +33,10 @@ Untuk radio dan rekomendasi, `RadioSelectionTest` menguji penyaringan umpan bali
 
 `RecommendationSettingsTest` memeriksa default autoplay mati, penyimpanan ulang, dan pemulihan pilihan individual. `RadioControlsUiTest` menguji aksi menu, sakelar berlabel aksesibel, serta pemulihan lagu/artis pada komponen Compose. `RadioAutoplayTest` memakai pemutar asli dengan WAV lokal dan kandidat sintetis untuk menguji transisi decoder, hasil terlambat setelah antrean diganti, pembatalan autoplay, repeat, penyaringan lagu otomatis tanpa menghapus pilihan manual, batas riwayat radio, dan acuan lagu awal saat pengisian berikutnya mencapai artis lain. Tes lokal ini tidak membuktikan ketersediaan katalog langsung. Variasi artis merupakan preferensi dengan fallback ketika kandidat sedikit, bukan kuota mutlak.
 
+`RadioContinuationTest` mencakup halaman lanjutan, kandidat yang belum dipilih, halaman kosong/berulang, ekspansi seed yang tetap terkait, umpan balik, kegagalan parsial, cancel dan batas pekerjaan per pengisian. `RadioAutoplayTest` juga memeriksa retry otomatis setelah kandidat habis melewati lagu ke-10, pemulihan setelah lagu terakhir berakhir, serta radio dijeda yang tidak melanjutkan sendiri. Bedakan kegagalan sumber sementara dari jumlah lagu maksimum; jangan menganggap ukuran kelompok enam lagu sebagai batas stasiun.
+
+`SavedQueueTest` memeriksa format simpanan, identitas kemunculan, urutan shuffle, checkpoint, input rusak dan batas ukuran. `QueuePersistenceTest` memeriksa penyimpanan Android, kegagalan tulis, pemulihan dijeda, perubahan pengguna saat pemuatan, pemisahan Spotify, acuan radio, serta pemindahan tanpa mengubah lagu saat ini. `QueueControlsUiTest` mencakup drag, menu urutan, kontrol aksesibilitas, kondisi kosong/error, pemisahan Spotify dan dialog playlist. Untuk perubahan antrean, periksa juga tampilan pada HP, tablet dan font diperbesar; pertahankan snapshot playlist saat dialog dibuka.
+
 Tes jaringan dan nada uji tidak berjalan secara default. Aktifkan hanya perjalanan yang diperlukan:
 
 | Argumen instrumentasi | Cakupan |
@@ -41,6 +45,7 @@ Tes jaringan dan nada uji tidak berjalan secara default. Aktifkan hanya perjalan
 | `liveQuality=true` | Peringkat hasil, decoder, dan AudioTrack |
 | `liveSession=true` | Antrean, Next/Previous, akhir lagu, dan latar belakang |
 | `transitionTone=true` | Nada deterministik untuk memeriksa transisi audio |
+| `normalizationAudio=true` | `NormalizationTest`: decoder asli dengan nada WAV lokal, adaptasi level pelan/keras, pergantian otomatis, toggle dan seek tanpa mengubah volume pengguna |
 | `liveLyrics=true` | Lirik nyata Inggris/Jepang, pembacaan kanji, serta pembukaan ulang cache; juga memakai pencarian YouTube Music |
 | `liveLyricsCatalog=true` | Enam rekaman Jepang/Indonesia; menyimpan metadata dan hasil lirik lokal untuk audit opsional |
 | `liveLyricsPlayback=true` | Seek maju/mundur, ketuk baris, Next/Previous dan pergantian otomatis pada service dan layar lirik asli; pilih sampel dengan `lyricsSong` |
@@ -52,7 +57,9 @@ Tes jaringan dan nada uji tidak berjalan secara default. Aktifkan hanya perjalan
 | `liveRecommendationPlayback=true` | Dua pemutaran katalog nyata melewati ambang 30 detik; sengaja menambah riwayat dan hitungan lokal pada profil uji |
 | `liveRadio=true` | `RadioLiveTest`: katalog YouTube Music nyata, service/MediaController dan decoder, Next/Previous, penyaringan/pemulihan lagu serta artis, sleep timer, transisi otomatis di latar belakang, dan penghapusan lagu otomatis saat autoplay dimatikan |
 | `liveRadioDiversity=true` | Mix YouTube anonim untuk Kangen, Dan, dan The Lazy Song; variasi artis pada kandidat mentah dan lagu yang sudah dicocokkan, urutan pilihan, serta refresh/cache pool katalog |
-| `liveRadioContinuation=true` | `RadioContinuationLiveTest`: 12 lagu melalui service/decoder asli, pengisian otomatis melewati kelompok pertama, variasi artis, acuan stasiun awal, serta paruh kedua di latar belakang; `radioQuery` opsional memilih lagu awal |
+| `liveRadioContinuation=true` | `RadioContinuationLiveTest`: default 12 lagu melalui service/decoder asli, pengisian otomatis melewati kelompok pertama, variasi artis, acuan stasiun awal, serta pemutaran di latar belakang setelah enam lagu; `radioQuery` memilih lagu awal dan `radioSongs` memilih 12–50 lagu |
+| `liveRadioPages=true` | `RadioPagesLiveTest`: tiga halaman mix nyata untuk Kangen dan The Lazy Song, melalui cursor NewPipe, dengan pemeriksaan bahwa setiap halaman menambah ID berbeda; tanpa decoder |
+| `queueResume=seed` / `queueResume=verify` | `QueueResumeLiveTest`: antrean YouTube nyata, posisi dan urutan shuffle setelah proses dihentikan, lalu resolusi ulang dan pemutaran; jalankan dua tahap dengan force-stop eksternal di antaranya |
 
 Contoh:
 
@@ -62,11 +69,31 @@ Contoh:
 
 Untuk `liveSession`, pilih sumber YouTube di aplikasi sebelum pengujian. Tes layanan langsung bergantung pada jaringan dan ketersediaan katalog. Tes otomatis memeriksa state serta error pemutar; kualitas suara tetap perlu didengarkan pada perangkat sasaran, termasuk saat pergantian lagu dan aplikasi di latar belakang.
 
+Argumen opsional `sessionSampleSeconds=5` memakai sampel lima detik per tahap untuk smoke test; tanpa argumen ini, durasi tiap tahap mengikuti perjalanan lengkap. Durasi yang dipakai dicatat dalam log. Perjalanan memiliki task Activity pengujiannya sendiri dan memulihkan pilihan autoplay serta riwayat setelah selesai.
+
+`VolumeNormalizationTest` memeriksa DSP RMS, batas penguatan/puncak sampel, silence gate, bypass, dan seek. `NormalizationTest` juga memeriksa preferensi, format PCM, penolakan passthrough/offload, serta pengurasan akhir stream melalui `AudioProcessingPipeline` Media3 tanpa menimpa output yang belum dikonsumsi atau kehilangan sampel lookahead. Pemeriksaan pipeline mencakup stream pendek, tepat sepanjang lookahead, dan lebih panjang. Hanya perjalanan decoder yang membutuhkan `normalizationAudio=true`. `NormalizationUiTest` memeriksa sakelar berlabel dan kondisi Spotify nonaktif dengan pilihan tetap tersimpan. Untuk menjalankan nada uji pada emulator atau profil uji:
+
+```sh
+./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=app.nada.player.playback.NormalizationTest -Pandroid.testInstrumentationRunnerArguments.normalizationAudio=true
+```
+
+Tes membuat dan menghapus fixture WAV sendiri di cache aplikasi serta benar-benar memutar audio. Hasil penguatan dan state decoder tidak membuktikan kesamaan keras suara yang dirasakan atau kualitas akustik pada perangkat. Untuk perubahan normalisasi, periksa juga musik nyata, bagian hening, Next/Previous, seek, toggle dan latar belakang pada perangkat sasaran; pastikan volume pengguna tetap terpisah dan salinan offline tetap bisa diputar. Normalisasi ini memakai RMS adaptif, bukan R128/LUFS seluruh lagu atau ReplayGain.
+
+Untuk `QueueResumeLiveTest`, pasang build debug dan APK instrumentasi, pilih sumber YouTube pada profil uji, lalu jalankan:
+
+```sh
+adb shell am instrument -w -e class app.nada.player.playback.QueueResumeLiveTest -e queueResume seed app.nada.player.test/androidx.test.runner.AndroidJUnitRunner
+adb shell am force-stop app.nada.player
+adb shell am instrument -w -e class app.nada.player.playback.QueueResumeLiveTest -e queueResume verify app.nada.player.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+Tahap pertama mencari dan memutar lagu nyata serta mengganti antrean profil uji. Tahap kedua memeriksa proses baru, pemulihan dijeda dengan posisi dan urutan yang sama, lalu melanjutkan audio dan berpindah lagu. Tes meninggalkan antrean dijeda. Cakupan ini tidak membuktikan pemulihan melalui carousel media Android atau perilaku pada semua perangkat.
+
 Jalankan `RadioLiveTest` dengan `-Pandroid.testInstrumentationRunnerArguments.liveRadio=true` pada profil uji: tes mengganti antrean dan benar-benar memutar audio. Bukti metadata lagu dan transisi disimpan di `noBackupFilesDir/radio-live.txt` pada perangkat. Transisi diperiksa saat Activity berada pada `CREATED`, sementara service tetap memutar. Cakupan ini tidak membuktikan ketersediaan Audius, kemiripan semua rekomendasi, atau kualitas suara secara akustik. Untuk perubahan radio, periksa juga menu lagu, antrean, dan pemulihan pilihan melalui Pengaturan pada HP, tablet, serta ukuran font diperbesar.
 
 `RadioDiversityLiveTest` hanya berjalan dengan `liveRadioDiversity=true` dan menyimpan metadata kandidat/pilihan serta waktu refresh/cache di `noBackupFilesDir/radio-diversity-live.txt`. Periksa artis hasil pencocokan, bukan hanya nama kanal atau nama artis dalam judul. Angka variasi dari tiga seed ini tidak menjamin semua stasiun memiliki kandidat sebanyak itu atau semua alias musisi dikenali. `RecommendationCacheLiveTest` memakai ViewModel asli untuk refresh, buka ulang dan pagination, lalu memeriksa cache disk/memori Coil; waktu refresh dan buka ulang adalah pengukuran berbeda, bukan bukti percepatan keseluruhan.
 
-`RadioContinuationLiveTest` menyimpan setiap pengisian antrean dan lagu yang diputar di `noBackupFilesDir/radio-continuation-live.txt`, termasuk saat gagal. Tes memutar awal setiap lagu selama sedikitnya tiga detik, lalu melakukan seek ke 1,2 detik terakhir agar pergantian akhir lagu tetap dilakukan pemutar. Tes tidak menambahkan kandidat atau menekan Next, dan memeriksa bahwa lagu setelah kelompok pertama benar-benar diputar. Ini merupakan uji transisi yang dipercepat, bukan pengujian mendengarkan 12 lagu penuh atau penilaian akustik. Gunakan profil uji karena antrean diganti dan audio benar-benar diputar.
+`RadioContinuationLiveTest` menyimpan setiap pengisian antrean dan lagu yang diputar di `noBackupFilesDir/radio-continuation-live.txt`, termasuk saat gagal. Tes memutar awal setiap lagu selama sedikitnya tiga detik, lalu melakukan seek ke 1,2 detik terakhir agar pergantian akhir lagu tetap dilakukan pemutar. Tes tidak menambahkan kandidat atau menekan Next, dan memeriksa bahwa lagu setelah kelompok pertama benar-benar diputar. Ini merupakan uji transisi yang dipercepat, bukan pengujian mendengarkan semua lagu penuh atau penilaian akustik. Gunakan profil uji karena antrean diganti dan audio benar-benar diputar.
 
 Untuk audit lirik, jalankan `LyricsCatalogLiveTest` dengan `liveLyricsCatalog=true` dahulu, lalu `LyricsPlaybackLiveTest` dengan `liveLyricsPlayback=true` dan `lyricsSong=yoru`, `lemon`, `refrain`, `kangen`, `dan`, atau `yangterdalam`. Jalankan setiap sampel dalam proses instrumentasi terpisah. Hasil rinci disimpan lokal, bukan ditulis ke log atau repository. Sorotan diuji terhadap timestamp lirik dan posisi Media3; tes ini tidak menilai keselarasan vokal secara akustik atau menjamin bacaan khusus semua lagu.
 

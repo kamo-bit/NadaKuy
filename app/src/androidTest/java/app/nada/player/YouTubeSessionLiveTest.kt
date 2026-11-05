@@ -11,7 +11,6 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
-import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
@@ -58,7 +57,7 @@ class YouTubeSessionLiveTest {
         while (SystemClock.elapsedRealtime() < deadline) {
             var done = false
             main {
-                assertNull("Player error during $description: ${controller.playerError?.errorCodeName}", controller.playerError)
+                if (::controller.isInitialized) assertNull("Player error during $description: ${controller.playerError?.errorCodeName}", controller.playerError)
                 done = condition()
             }
             if (done) return
@@ -88,25 +87,28 @@ class YouTubeSessionLiveTest {
             ownRows += line
             counters += count
         }
-        assertTrue("No owned AudioTrack at $stage", ownRows.isNotEmpty())
-        assertTrue("Owned AudioTrack underruns at $stage: $counters", counters.all { it == 0L })
         val selected = dump.lineSequence().filter { it.contains("Normal mixer raw underrun counters") }.toList()
         File(evidence, "$stage-audio.txt").writeText((selected + header + ownRows).joinToString("\n"))
+        assertTrue("No owned AudioTrack at $stage", ownRows.isNotEmpty())
+        assertTrue("Owned AudioTrack underruns at $stage: $counters", counters.all { it == 0L })
         main {
             log("Stage=$stage; index=${controller.currentMediaItemIndex}; id=${controller.currentMediaItem?.mediaId}; position=${controller.currentPosition}; playing=${controller.isPlaying}; underruns=$counters")
         }
     }
 
     private fun sample(stage: String, index: Int, seconds: Int = 15) {
+        val sampleSeconds = InstrumentationRegistry.getArguments().getString("sessionSampleSeconds")?.let {
+            it.toInt().also { value -> require(value in 3..30) }
+        } ?: seconds
         val start = SystemClock.elapsedRealtime()
         await("$stage starts") { controller.currentMediaItemIndex == index && controller.isPlaying }
         val readyMs = SystemClock.elapsedRealtime() - start
         var initial = 0L
         main { initial = controller.currentPosition }
-        await("$stage advances ${seconds}s", seconds * 1000L + 20_000) {
-            controller.currentMediaItemIndex == index && controller.isPlaying && controller.currentPosition >= initial + seconds * 1000L
+        await("$stage advances ${sampleSeconds}s", sampleSeconds * 1000L + 20_000) {
+            controller.currentMediaItemIndex == index && controller.isPlaying && controller.currentPosition >= initial + sampleSeconds * 1000L
         }
-        log("Ready=$stage; waitMs=$readyMs; sampledSeconds=$seconds")
+        log("Ready=$stage; waitMs=$readyMs; sampledSeconds=$sampleSeconds")
         snapshot(stage)
         val id = mainId().removePrefix("youtube:")
         val audio = YouTubeCatalog.resolve(id)
@@ -136,7 +138,20 @@ class YouTubeSessionLiveTest {
                 ?: error("No requested artist/title from live catalog: $query")
         }
         tracks.forEachIndexed { index, track -> log("Queue=$index; ${track.id} | ${track.title} | ${track.artist}") }
-        val activity = ActivityScenario.launch(MainActivity::class.java)
+        // This journey deliberately leaves and re-enters a real Android task. Own that task's
+        // activities directly; ActivityScenario cannot retain its original instance across reorder.
+        var activity: MainActivity? = null
+        main { context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) }
+        await("test activity resumes", 15_000) {
+            activity = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED).filterIsInstance<MainActivity>().singleOrNull()
+            activity != null
+        }
+        var taskId = -1
+        main { taskId = activity!!.taskId }
+        val preferences = (context.applicationContext as NadaApplication).recommendationSettings
+        val previousAutoplay = preferences.state.value.autoplay
+        val previousHistory = context.getSharedPreferences("nada_library", Context.MODE_PRIVATE).getString("history", null)
+        main { preferences.setAutoplay(false) }
         var connected = false
         try {
             lateinit var future: com.google.common.util.concurrent.ListenableFuture<MediaController>
@@ -191,8 +206,20 @@ class YouTubeSessionLiveTest {
             main { assertEquals(tracks.size, controller.mediaItemCount) }
             log("PASS: five songs, manual next/previous, automatic boundary, Home background, background transitions, return; no owned AudioTrack underruns")
         } finally {
-            if (connected) main { controller.pause(); controller.stop(); controller.clearMediaItems(); controller.release() }
-            activity.close()
+            try {
+                if (connected) main { controller.pause(); controller.stop(); controller.clearMediaItems(); controller.release() }
+                main {
+                    listOf(Stage.RESUMED, Stage.STARTED, Stage.PAUSED, Stage.STOPPED, Stage.CREATED).flatMap {
+                        ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(it)
+                    }.filterIsInstance<MainActivity>().filter { it.taskId == taskId }.distinct().forEach { it.finish() }
+                }
+                instrumentation.waitForIdleSync()
+            } finally {
+                main { preferences.setAutoplay(previousAutoplay) }
+                context.getSharedPreferences("nada_library", Context.MODE_PRIVATE).edit().apply {
+                    if (previousHistory == null) remove("history") else putString("history", previousHistory)
+                }.apply()
+            }
         }
     }
 }

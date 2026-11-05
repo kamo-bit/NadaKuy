@@ -15,6 +15,8 @@ import app.nada.player.data.Track
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import org.json.JSONObject
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancel
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class PlaybackService : MediaSessionService() {
@@ -22,9 +24,12 @@ class PlaybackService : MediaSessionService() {
     private var sleepTimer: SleepTimer? = null
     private var listening: ListeningObserver? = null
     private var radio: RadioAutoplay? = null
+    private var queuePersistence: QueuePersistence? = null
+    private val serviceScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate)
 
     private fun publishExtras(extras: Bundle) {
         session?.let { it.setSessionExtras(Bundle(it.sessionExtras).apply { putAll(extras) }) }
+        if (extras.containsKey(RadioCommands.TITLE)) queuePersistence?.checkpoint()
     }
 
     override fun onCreate() {
@@ -39,8 +44,15 @@ class PlaybackService : MediaSessionService() {
 
                 override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
                     val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
-                    if (isOwnController(controller)) { commands.add(QueueCommands.playNext); commands.add(SleepCommands.set); commands.add(RadioCommands.start); commands.add(RadioCommands.retry) }
+                    if (isOwnController(controller)) { commands.add(QueueCommands.playNext); commands.add(QueueCommands.move); commands.add(SleepCommands.set); commands.add(RadioCommands.start); commands.add(RadioCommands.retry) }
                     return MediaSession.ConnectionResult.AcceptedResultBuilder(session).setAvailableSessionCommands(commands.build()).build()
+                }
+
+                // Observe even an empty clear before async restoration can publish the old queue.
+                @Suppress("OVERRIDE_DEPRECATION")
+                override fun onPlayerCommandRequest(session: MediaSession, controller: MediaSession.ControllerInfo, playerCommand: Int): Int {
+                    if (playerCommand == androidx.media3.common.Player.COMMAND_CHANGE_MEDIA_ITEMS) queuePersistence?.userQueueCommand()
+                    return SessionResult.RESULT_SUCCESS
                 }
 
                 override fun onCustomCommand(session: MediaSession, controller: MediaSession.ControllerInfo,
@@ -56,13 +68,21 @@ class PlaybackService : MediaSessionService() {
                         return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                     }
                     if (customCommand == RadioCommands.start) {
+                        queuePersistence?.userQueueCommand()
                         val text = args.getString(QueueCommands.TRACK)?.takeIf { it.length <= 16_384 }
                         val track = runCatching { Track.fromSaved(JSONObject(requireNotNull(text))) }.getOrNull()?.takeIf { it.playableInNada }
                             ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
                         radio?.start(track)
                         return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                     }
+                    if (customCommand == QueueCommands.move) {
+                        val from = args.getString(QueueCommands.ENTRY_ID)?.takeIf { it.length <= 100 }
+                        val to = args.getString(QueueCommands.TARGET_ID)?.takeIf { it.length <= 100 }
+                        val accepted = from != null && to != null && player.moveUpcoming(from, to)
+                        return Futures.immediateFuture(SessionResult(if (accepted) SessionResult.RESULT_SUCCESS else SessionError.ERROR_BAD_VALUE))
+                    }
                     if (customCommand != QueueCommands.playNext) return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
+                    queuePersistence?.userQueueCommand()
                     val track = runCatching { Track.fromSaved(JSONObject(requireNotNull(args.getString(QueueCommands.TRACK)))) }
                         .getOrNull()?.takeIf { it.playableInNada }
                         ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
@@ -77,12 +97,18 @@ class PlaybackService : MediaSessionService() {
         val catalog = app.nada.player.recommendations.RadioCatalog(applicationState)
         val history = app.nada.player.recommendations.ListeningHistory.get(this)
         radio = RadioAutoplay(player, applicationState.recommendationSettings, catalog::related, ::publishExtras, history = { history.state.value })
+        val queueStore = QueueStore.get(this)
+        queuePersistence = QueuePersistence(playback.engine, queueStore, { radio?.station() }, { radio?.restoreStation(it) },
+            canRestore = { getSharedPreferences("spotify_connection", MODE_PRIVATE).getString("source", "youtube") != "spotify" })
+        serviceScope.launch { queueStore.error.collect { publishExtras(Bundle().apply { putString(QueueCommands.SAVE_ERROR, it) }) } }
         listening = ListeningObserver(playback.engine) { history.record(it) }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
 
     override fun onDestroy() {
+        queuePersistence?.close(); queuePersistence = null
+        serviceScope.cancel()
         radio?.close(); radio = null
         listening?.close(); listening = null
         sleepTimer?.close(); sleepTimer = null

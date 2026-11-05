@@ -10,8 +10,8 @@ android {
         applicationId = "app.nada.player"
         minSdk = 26
         targetSdk = 36
-        versionCode = providers.gradleProperty("qaVersionCode").orNull?.toInt() ?: 18
-        versionName = providers.gradleProperty("qaVersionName").orNull ?: "1.9.0"
+        versionCode = providers.gradleProperty("qaVersionCode").orNull?.toInt() ?: 19
+        versionName = providers.gradleProperty("qaVersionName").orNull ?: "1.10.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -84,6 +84,7 @@ dependencies {
   implementation("androidx.compose.material:material-icons-extended:1.7.8")
   implementation("io.coil-kt.coil3:coil-compose:3.3.0")
   implementation("io.coil-kt.coil3:coil-network-okhttp:3.3.0")
+  implementation("sh.calvin.reorderable:reorderable:3.1.0")
   implementation("androidx.palette:palette-ktx:1.0.0")
   implementation(files("libs/spotify-app-remote-release-0.8.0.aar"))
   implementation("com.google.code.gson:gson:2.13.2")

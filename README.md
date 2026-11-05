@@ -16,6 +16,8 @@ APK ini merupakan build debug untuk pengujian, dengan sertifikat lokal yang sama
 - Rekomendasi lagu terkait lintas artis dari favorit dan minat dengar terkini, serta bagian **Sering kamu putar** di Beranda.
 - Radio Lagu dan autoplay, dengan kontrol lokal **Kurang suka** serta **Jangan rekomendasikan artis ini** yang bisa dipulihkan.
 - Pemutaran di latar belakang, kontrol notifikasi, antrean, shuffle, repeat, dan sleep timer.
+- Normalisasi volume lokal yang aktif secara default dan bisa dimatikan, termasuk untuk musik offline.
+- Antrean tersimpan otomatis di perangkat, pengaturan urutan, dan penyimpanan antrean menjadi playlist.
 - Lagu disukai, playlist, riwayat pemutaran, dan riwayat pencarian yang disimpan di perangkat.
 - Unduhan audio untuk diputar offline di NadaKuy, dengan progres, jeda/lanjutkan, coba lagi, dan penghapusan salinan lokal.
 - Unduh seluruh playlist atau lagu disukai sekaligus; lagu yang sudah offline dilewati. Pilihan jaringan tanpa kuota berlaku untuk semua unduhan.
@@ -41,13 +43,29 @@ Buka menu tiga titik pada lagu YouTube Music, YouTube, atau Audius, lalu pilih *
 
 Autoplay awalnya mati. Ubah melalui **Pengaturan → Radio dan rekomendasi** atau sakelar **Autoplay** pada antrean. Autoplay menambahkan lagu setelah antrean pilihanmu; repeat menunda pengisian otomatis sampai repeat dimatikan. Mematikan autoplay membuang lagu otomatis yang belum diputar, sambil mempertahankan lagu saat ini dan lagu yang kamu tambahkan sendiri.
 
-Setiap pengisian menambahkan maksimal enam lagu, bukan membatasi total radio menjadi enam lagu. Saat tersisa satu lagu berikutnya, autoplay mencoba mengisi antrean lagi. Jumlah tambahan bergantung pada kandidat yang sesuai; jika kandidat habis atau pemuatan gagal, gunakan **Coba lagi** atau pilih lagu awal lain.
+Setiap pengisian menambahkan maksimal enam lagu, tanpa batas total enam atau sepuluh lagu. Saat tersisa paling banyak tiga lagu berikutnya, autoplay mulai mengisi antrean lagi. Radio YouTube melanjutkan halaman mix dan menyimpan kandidat yang belum dipilih; ketika halaman habis, pencarian dilanjutkan dari rekaman terkait dalam stasiun awal. Jumlah tambahan tetap bergantung pada kandidat yang tersedia dan sesuai. Pemuatan yang gagal dicoba ulang otomatis dengan jeda bertahap selama pemutaran masih diaktifkan; kamu juga bisa menekan **Coba lagi**. Radio yang dijeda tetap dijeda.
 
 Pada menu lagu, pilih **Kurang suka** untuk menyembunyikan rekaman tersebut atau **Jangan rekomendasikan artis ini** untuk menyembunyikan artis. Pilihan ini berlaku pada **Pilihan untukmu**, Radio Lagu, dan autoplay; lagu tetap tersedia di pencarian dan koleksi, serta tidak menghapus pilihan manual dari antrean atau menghentikan lagu saat ini. Buka **Pengaturan → Radio dan rekomendasi → Kelola kontrol rekomendasi**, lalu tekan **Pulihkan** pada lagu atau artis untuk membatalkan satu pilihan. Kontrol disimpan lokal tanpa akun aplikasi atau API key pengguna.
 
 Radio YouTube mengambil mix musik publik tanpa akun berdasarkan lagu awal, lalu mencocokkan kandidat kembali di katalog lagu YouTube Music untuk mengenali artis rekamannya; petunjuk lagu terkait menjadi cadangan jika mix tidak tersedia. Audius menggabungkan pencarian artis dan tren genre. Pengisian berikutnya menelusuri beberapa artis dari mix awal, dengan mengutamakan artis yang belum banyak muncul belakangan. Lagu awal tetap menjadi acuan, termasuk ketika memutar artis lain. Riwayat dengar memberi bobot tambahan pada kandidat terkait, tanpa memasukkan favorit di luar kandidat tersebut.
 
 Urutan radio dan rekomendasi mengutamakan variasi artis serta berusaha menghindari artis yang sama berturut-turut. Jika kandidat sedikit, artis dapat berulang agar pemutaran tetap berlanjut. Hasil katalog disimpan dalam cache terbatas; kontrol lokal dan riwayat diterapkan saat memilih lagu. Kemiripan lagu, pencocokan rekaman/artis, dan peringkat versi asli memakai heuristik serta metadata sumber; alias musisi belum selalu dikenali sebagai artis yang sama, dan hasil tidak menjamin rekaman resmi atau kemiripan yang selalu tepat. Radio memerlukan koneksi dan bergantung pada ketersediaan katalog.
+
+## Normalisasi volume
+
+Buka **Pengaturan → Pemutaran → Normalisasi volume** untuk mengaktifkan atau mematikannya. Fitur ini aktif secara default dan menyesuaikan penguatan audio secara bertahap untuk mengurangi perbedaan level antar lagu YouTube Music, YouTube, dan Audius, termasuk salinan offline. Pilihan disimpan di perangkat; tidak perlu login atau izin tambahan, dan berkas unduhan tidak diubah.
+
+Penyesuaian mengikuti audio yang sedang diputar, sehingga membutuhkan waktu untuk beradaptasi dan tidak menjamin semua lagu terdengar sama keras. Volume perangkat tetap kamu atur sendiri. Saat sumber Spotify dipilih, sakelar dinonaktifkan karena audio ditangani aplikasi Spotify resmi; atur normalisasi di Spotify. Pilihan NadaKuy tetap disimpan untuk YouTube dan Audius.
+
+## Antrean tersimpan
+
+Untuk YouTube Music, YouTube, dan Audius, antrean serta posisi lagu disimpan otomatis di perangkat. Saat aplikasi dibuka kembali, lagu saat ini, urutan termasuk shuffle, repeat, dan posisi terakhir yang tersimpan dipulihkan dalam keadaan dijeda. Tekan **Putar** untuk melanjutkan; pemutar menyiapkan sumber audio kembali saat itu.
+
+Buka **Antrean** pada pemutar untuk melihat **Sedang diputar** dan **Berikutnya**. Geser pegangan di kanan lagu berikutnya untuk mengatur urutan, atau ketuk pegangan lalu pilih **Pindahkan ke atas/bawah**. Lagu saat ini tetap di tempatnya. Urutan yang terlihat mengikuti shuffle bila aktif; lagu yang sama dapat muncul beberapa kali.
+
+Tekan **Simpan**, beri nama, lalu simpan ke playlist baru. Playlist berisi lagu saat ini dan lagu berikutnya sesuai urutan saat dialog dibuka; lagu yang sama disimpan sekali. Perubahan antrean setelah dialog dibuka tidak mengubah pilihan tersebut.
+
+Antrean tersimpan hanya berlaku pada perangkat ini dan tidak masuk backup koleksi atau transfer perangkat. Jika penyimpanan atau pemulihan gagal, keterangannya muncul di antrean. Antrean Spotify tetap dikelola aplikasi Spotify resmi.
 
 ## Mendengarkan offline
 
@@ -72,7 +90,9 @@ Buka tab **Pengaturan** di ujung kanan navbar, setelah **Koleksi**. Pada layar l
 - **Cek pembaruan** meminta rilis stabil terbaru dari GitHub tanpa login. Pilih **Unduh pembaruan** untuk mengambil paket langsung di NadaKuy, dengan progres dan tombol batal. Unduhan tetap dikelola ketika pengguna pindah halaman atau aplikasi berada di latar belakang.
 - Setelah pemeriksaan paket selesai, pilih **Pasang pembaruan**. Android dapat meminta izin pemasangan dari NadaKuy, kemudian menampilkan konfirmasi **Perbarui**. Koleksi dan audio offline tetap tersimpan. Jika pemasangan dibatalkan, paket tetap siap dipasang tanpa diunduh ulang.
 
-Pemeriksaan versi dilakukan atas permintaan. Paket diambil dari rilis resmi dan disimpan di ruang privat aplikasi; ukuran, SHA-256, nama paket, versi dan sertifikat penandatanganan diperiksa sebelum pemasangan. Unduhan yang terputus dicoba ulang secara terbatas. Jika paket gagal diperiksa, NadaKuy menyediakan tindakan unduh ulang. Paket pembaruan tidak disertakan dalam backup koleksi. Riwayat rilis GitHub tetap tersedia sebagai tautan tambahan.
+Saat aplikasi dibuka, NadaKuy memeriksa rilis stabil terbaru dan menampilkan pemberitahuan jika versi lebih baru beserta paketnya tersedia. **Lihat pembaruan** membuka bagian pembaruan di Pengaturan; **Nanti**, tombol Kembali, atau menutup dialog menunda pengingat versi tersebut selama 24 jam. Pemeriksaan otomatis dibatasi enam jam selama proses aplikasi yang sama (30 menit setelah kegagalan), sedangkan pemeriksaan manual tetap tersedia. Gangguan internet tidak menampilkan dialog error saat membuka aplikasi. Tidak ada unduhan atau pemasangan otomatis.
+
+Paket diambil dari rilis resmi dan disimpan di ruang privat aplikasi; ukuran, SHA-256, nama paket, versi dan sertifikat penandatanganan diperiksa sebelum pemasangan. Unduhan yang terputus dicoba ulang secara terbatas. Jika paket gagal diperiksa, NadaKuy menyediakan tindakan unduh ulang. Paket pembaruan tidak disertakan dalam backup koleksi. Riwayat rilis GitHub tetap tersedia sebagai tautan tambahan.
 
 Versi lama yang masih membuka browser perlu memasang APK dengan fitur ini satu kali. Setelah itu, unduhan pembaruan berikutnya dilakukan dari Pengaturan. Android tetap memerlukan persetujuan pemasangan; pembaruan mengambil paket APK baru dan mengganti instalasi yang ada.
 

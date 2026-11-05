@@ -25,6 +25,9 @@ class SettingsNavigationTest {
         val settings = rule.onNodeWithContentDescription("Tab Pengaturan").fetchSemanticsNode().boundsInRoot
         assertTrue(settings.left > library.left)
         rule.onNodeWithContentDescription("Tab Pengaturan").performClick().assertIsSelected()
+        rule.onNodeWithText("Normalisasi volume").assertIsDisplayed()
+        rule.onNodeWithText("Terjemahan lirik").assertDoesNotExist()
+        rule.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Backup koleksi"))
         rule.onNodeWithText("Backup koleksi").assertIsDisplayed()
         rule.onNodeWithContentDescription("Tab Koleksi").performClick().assertIsSelected()
         rule.onNodeWithText("Koleksi Kamu").assertIsDisplayed()

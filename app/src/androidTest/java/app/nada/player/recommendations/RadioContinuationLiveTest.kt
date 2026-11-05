@@ -31,10 +31,11 @@ class RadioContinuationLiveTest {
         val args = InstrumentationRegistry.getArguments()
         assumeTrue(args.getString("liveRadioContinuation") == "true")
         val query = args.getString("radioQuery") ?: "Dewa 19 Kangen"
+        val target = (args.getString("radioSongs")?.toInt() ?: 12).also { require(it in 12..50) }
         val app = ApplicationProvider.getApplicationContext<NadaApplication>()
         val before = app.recommendationSettings.state.value
         val report = File(app.noBackupFilesDir, "radio-continuation-live.txt")
-        val evidence = mutableListOf("Query=$query; target=12 decoded songs; 3s head + seek to final 1.2s; second half background")
+        val evidence = mutableListOf("Query=$query; target=$target decoded songs; 3s head + seek to final 1.2s; second half background")
         fun record(line: String) { evidence += line; report.writeText(evidence.joinToString("\n")) }
         val seed = YouTubeCatalog.search(query).first()
         val activity = ActivityScenario.launch(MainActivity::class.java)
@@ -71,7 +72,7 @@ class RadioContinuationLiveTest {
             assertEquals(SessionResult.RESULT_SUCCESS, response.get(15, TimeUnit.SECONDS).resultCode)
             await("initial automatic batch") { controller.isPlaying && generated.size >= 4 && !controller.sessionExtras.getBoolean(RadioCommands.LOADING) }
             val firstBatch = generated.keys.toSet()
-            for (index in 0 until 12) {
+            for (index in 0 until target) {
                 await("song ${index + 1} decoded") { controller.isPlaying && controller.currentPosition >= 3000 && controller.duration > 5000 }
                 main {
                     val track = controller.currentMediaItem!!.toTrack()
@@ -81,7 +82,7 @@ class RadioContinuationLiveTest {
                     played += track
                     record("Played=${index + 1}; ${track.id}|${track.title}|${track.artist}; position=${controller.currentPosition}; upcoming=${controller.upcomingQueue().size}; background=${index >= 6}")
                 }
-                if (index == 11) break
+                if (index == target - 1) break
                 if (index == 5) activity.moveToState(Lifecycle.State.CREATED)
                 await("automatic next song available after ${index + 1}") { !controller.sessionExtras.getBoolean(RadioCommands.LOADING) && controller.upcomingQueue().size > 1 }
                 var expected: String? = null

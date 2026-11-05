@@ -119,8 +119,8 @@ class MusicRepository(context: Context) {
         saveTracks("history", history)
     }
 
-    fun createPlaylist(name: String): LocalPlaylist {
-        val result = LocalPlaylist(UUID.randomUUID().toString(), name.trim().take(60), emptyList())
+    fun createPlaylist(name: String, tracks: List<Track> = emptyList()): LocalPlaylist {
+        val result = LocalPlaylist(UUID.randomUUID().toString(), name.trim().take(60), tracks.distinctBy(Track::id))
         require(result.name.isNotBlank())
         playlists = playlists + result
         savePlaylists()

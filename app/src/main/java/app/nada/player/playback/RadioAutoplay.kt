@@ -1,6 +1,7 @@
 package app.nada.player.playback
 
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.media3.common.Player
 import androidx.media3.session.SessionCommand
 import app.nada.player.data.Track
@@ -39,6 +40,9 @@ internal class RadioAutoplay(private val player: Player, private val preferences
     private var error: String? = null
     private var closed = false
     private var repeatMode = player.repeatMode
+    private var failures = 0
+    private var retryAt = 0L
+    private val heard = linkedMapOf<String, Track>()
 
     init {
         player.addListener(this)
@@ -49,6 +53,12 @@ internal class RadioAutoplay(private val player: Player, private val preferences
             publishState()
             checkQueue()
         } }
+        scope.launch {
+            while (isActive) {
+                delay(1000)
+                if (player.playWhenReady) checkQueue()
+            }
+        }
     }
 
     fun start(track: Track) {
@@ -57,6 +67,7 @@ internal class RadioAutoplay(private val player: Player, private val preferences
         queueId = UUID.randomUUID().toString()
         title = track.title
         anchor = track
+        heard.clear()
         player.repeatMode = Player.REPEAT_MODE_OFF
         player.shuffleModeEnabled = false
         player.setMediaItem(mediaItem(track, queueId, false))
@@ -66,16 +77,37 @@ internal class RadioAutoplay(private val player: Player, private val preferences
 
     fun retry() { invalidate(); publishState(); checkQueue() }
 
+    fun station(): RadioStation? = anchor?.takeIf {
+        queueId == player.currentMediaItem?.mediaMetadata?.extras?.getString(RadioCommands.QUEUE_ID) &&
+            it.source == player.currentMediaItem?.toTrack()?.source
+    }?.let { RadioStation(it, queueId, title) }
+
+    fun restoreStation(saved: RadioStation?) {
+        invalidate()
+        heard.clear()
+        queueId = player.currentMediaItem?.mediaMetadata?.extras?.getString(RadioCommands.QUEUE_ID)
+        anchor = saved?.takeIf { it.queueId == queueId }?.anchor ?: player.currentMediaItem?.toTrack()
+        title = saved?.takeIf { it.queueId == queueId && preferences.state.value.autoplay }?.title
+        repeatMode = player.repeatMode
+        removeUnwantedAutomatic()
+        publishState()
+    }
+
     override fun onEvents(player: Player, events: Player.Events) {
         if (player.repeatMode != repeatMode) { repeatMode = player.repeatMode; invalidate(); publishState() }
         val current = player.currentMediaItem?.mediaMetadata?.extras?.getString(RadioCommands.QUEUE_ID)
-        if (current != queueId) { invalidate(); queueId = current; title = null; anchor = player.currentMediaItem?.toTrack(); publishState() }
-        if (player.mediaItemCount == 0 && (loading || title != null || error != null || anchor != null)) { invalidate(); title = null; anchor = null; publishState() }
+        if (current != queueId) { invalidate(); heard.clear(); queueId = current; title = null; anchor = player.currentMediaItem?.toTrack(); publishState() }
+        if (player.mediaItemCount == 0 && (loading || title != null || error != null || anchor != null)) { invalidate(); heard.clear(); title = null; anchor = null; publishState() }
+        player.currentMediaItem?.toTrack()?.let { track ->
+            val key = app.nada.player.recommendations.ListeningRecommendations.recordingKey(track)
+            heard.remove(key); heard[key] = track
+            if (heard.size > 200) heard.remove(heard.keys.first())
+        }
         checkQueue()
     }
 
     private fun invalidate() {
-        generation++; job?.cancel(); job = null; attempted = null; loading = false; error = null
+        generation++; job?.cancel(); job = null; attempted = null; loading = false; error = null; failures = 0; retryAt = 0
     }
 
     private fun removeUnwantedAutomatic() {
@@ -87,11 +119,15 @@ internal class RadioAutoplay(private val player: Player, private val preferences
     }
 
     private fun checkQueue() {
-        if (closed || !preferences.state.value.autoplay || job?.isActive == true || loading || error != null ||
+        if (closed || !preferences.state.value.autoplay || job?.isActive == true || loading ||
             player.repeatMode != Player.REPEAT_MODE_OFF || player.mediaItemCount == 0 ||
             player.playbackState !in listOf(Player.STATE_READY, Player.STATE_ENDED)) return
+        if (error != null) {
+            if (!player.playWhenReady || SystemClock.elapsedRealtime() < retryAt) return
+            error = null; attempted = null
+        }
         val upcoming = player.upcomingQueue()
-        if (upcoming.size > 2) return
+        if (upcoming.size > 4) return
         val seed = upcoming.lastOrNull()?.track ?: return
         val origin = anchor ?: player.currentMediaItem?.toTrack()?.also { anchor = it } ?: return
         if (!seed.playableInNada || attempted == seed.id) return
@@ -102,7 +138,8 @@ internal class RadioAutoplay(private val player: Player, private val preferences
         loading = true; error = null; publishState()
         job = scope.launch {
             try {
-                val candidates = load(RadioRequest(origin, seed, recent))
+                val queued = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).toTrack() }
+                val candidates = withTimeout(45_000) { load(RadioRequest(origin, seed, recent, queued + heard.values, token)) }
                 ensureActive()
                 if (closed || generation != expected || token != queueId ||
                     token != player.currentMediaItem?.mediaMetadata?.extras?.getString(RadioCommands.QUEUE_ID) ||
@@ -113,18 +150,26 @@ internal class RadioAutoplay(private val player: Player, private val preferences
                 }.dropLast(20)
                 obsolete.asReversed().forEach(player::removeMediaItem)
                 val queue = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).toTrack() }
-                val accepted = RadioSelection.select(candidates, origin, queue, preferences.state.value, history())
-                if (accepted.isEmpty()) error = "Belum ada lagu radio yang cocok. Coba lagi atau pilih lagu awal lain."
+                val accepted = RadioSelection.select(candidates, origin, queue + heard.values, preferences.state.value, history(), recent = queue.takeLast(10))
+                if (accepted.isEmpty()) failed("Belum ada lagu radio yang cocok. Coba lagi atau pilih lagu awal lain.")
                 else {
+                    failures = 0; retryAt = 0
                     val ended = player.playbackState == Player.STATE_ENDED && player.playWhenReady
                     val next = player.mediaItemCount
                     player.addMediaItems(accepted.map { mediaItem(it, token, true) })
                     if (ended) { player.seekToDefaultPosition(next); player.prepare(); player.play() }
                 }
-            } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { if (generation == expected) error = "Radio belum bisa dimuat. Periksa internet, lalu coba lagi." }
-            finally { if (generation == expected) { loading = false; publishState() } }
+            } catch (_: TimeoutCancellationException) { if (generation == expected) failed("Radio belum bisa dimuat. Periksa internet, lalu coba lagi.") }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { if (generation == expected) failed("Radio belum bisa dimuat. Periksa internet, lalu coba lagi.") }
+            finally { if (generation == expected) { loading = false; job = null; publishState() } }
         }
+    }
+
+    private fun failed(message: String) {
+        error = message
+        failures = (failures + 1).coerceAtMost(4)
+        retryAt = SystemClock.elapsedRealtime() + longArrayOf(1000, 3000, 10_000, 30_000)[failures - 1]
     }
 
     private fun publishState() = publish(Bundle().apply {

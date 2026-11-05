@@ -55,6 +55,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.media3.common.Player
 import app.nada.player.MusicState
 import app.nada.player.MusicViewModel
@@ -94,6 +96,10 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
     val artworkColor by rememberArtworkColor(s.current)
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { model.checkForUpdatesOnOpen() }
+    model.updateNotice?.let { release ->
+        UpdateNoticeDialog(release.version, model::openUpdateNotice, model::dismissUpdateNotice)
+    }
     LaunchedEffect(model.updatesNavigationRequest) {
         if (model.updatesNavigationRequest > 0) { tab = 3; collection = null; fullPlayer = false; showLyrics = false }
     }

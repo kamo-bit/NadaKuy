@@ -3,6 +3,11 @@ package app.nada.player.youtube
 import app.nada.player.data.Track
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.CancellationException
+import org.schabi.newpipe.extractor.Page
+import app.nada.player.recommendations.RadioPages
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.schabi.newpipe.extractor.NewPipe
@@ -125,8 +130,8 @@ object YouTubeCatalog {
         }
     }
 
-    private fun entries(items: List<InfoItem>, videos: Boolean): List<YouTubeSearchRanking.Entry> =
-        items.filterIsInstance<StreamInfoItem>().take(40).mapNotNull { item ->
+    private fun entries(items: List<InfoItem>, videos: Boolean, limit: Int = 40): List<YouTubeSearchRanking.Entry> =
+        items.filterIsInstance<StreamInfoItem>().take(limit).mapNotNull { item ->
                 val id = YouTubeLinks.videoId(item.url) ?: return@mapNotNull null
                 if (item.duration <= 0) return@mapNotNull null // Live streams need different queue/timer semantics.
                 YouTubeSearchRanking.Entry(Track("youtube:$id", item.name, item.uploaderName.orEmpty().ifBlank { "YouTube" },
@@ -147,6 +152,44 @@ object YouTubeCatalog {
             val id = requireNotNull(YouTubeLinks.videoId(track.id))
             val mix = PlaylistInfo.getInfo(ServiceList.YouTube, "${YouTubeLinks.watch(id)}&list=RDAMVM$id")
             entries(mix.relatedItems, false).map { it.track }
+        }
+    }
+
+    /** The opaque upstream cursor lives only in this source, and advances after a successful fetch. */
+    internal fun radioPages(track: Track): RadioPages {
+        val id = requireNotNull(YouTubeLinks.videoId(track.id))
+        val url = "${YouTubeLinks.watch(id)}&list=RDAMVM$id"
+        var started = false
+        var cursor: Page? = null
+        val previous = ArrayDeque<Page>()
+        fun same(a: Page, b: Page) = a.url == b.url && a.id == b.id && a.ids == b.ids && a.cookies == b.cookies && a.body.contentEquals(b.body)
+        return RadioPages {
+            if (started && cursor == null) null else {
+                val selected = cursor
+                val result = withContext(Dispatchers.IO) {
+                    synchronized(engineLock) {
+                        initialize()
+                        if (!started) {
+                            try {
+                                val info = PlaylistInfo.getInfo(ServiceList.YouTube, url)
+                                entries(info.relatedItems, false, 80).map { it.track } to info.nextPage
+                            } catch (cancelled: CancellationException) { throw cancelled }
+                            catch (_: Exception) {
+                                val info = StreamInfo.getInfo(ServiceList.YouTube, YouTubeLinks.watch(id))
+                                entries(info.relatedItems.orEmpty(), false, 80).map { it.track } to null
+                            }
+                        } else {
+                            val info = PlaylistInfo.getMoreItems(ServiceList.YouTube, url, requireNotNull(selected))
+                            entries(info.items, false, 80).map { it.track } to info.nextPage
+                        }
+                    }
+                }
+                currentCoroutineContext().ensureActive()
+                selected?.let { previous.addLast(it); if (previous.size > 8) previous.removeFirst() }
+                cursor = result.second?.takeIf { Page.isValid(it) && previous.none { old -> same(old, it) } }
+                started = true
+                result.first
+            }
         }
     }
 

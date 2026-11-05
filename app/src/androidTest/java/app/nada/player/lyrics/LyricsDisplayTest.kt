@@ -25,6 +25,8 @@ class LyricsDisplayTest {
             LyricLine(5000, "新しい朝", "atarashii asa")), true, romanized = true)
         rule.setContent { NadaTheme { LyricsBody(document, position.longValue, true, { seek = it }, Modifier.fillMaxSize()) } }
         rule.onNodeWithText("君の名前").assertIsSelected()
+        rule.onNodeWithText("Terjemahkan dengan Google").assertDoesNotExist()
+        rule.onNodeWithText("Terjemahan", substring = false).assertDoesNotExist()
         rule.onNodeWithText("kimi no namae").assertIsDisplayed()
         rule.onNodeWithText("新しい朝").performClick()
         rule.runOnIdle { assertEquals(5000L, seek); position.longValue = 5500 }

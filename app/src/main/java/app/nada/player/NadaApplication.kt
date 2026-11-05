@@ -12,6 +12,8 @@ import app.nada.player.data.CatalogCache
 class NadaApplication : Application(), SingletonImageLoader.Factory {
     internal val catalogCache by lazy { CatalogCache(cacheDir.resolve("catalog")) }
     internal val recommendationSettings by lazy { app.nada.player.recommendations.RecommendationSettings(this) }
+    internal val playbackSettings by lazy { app.nada.player.playback.PlaybackSettings(this) }
+    internal val updateNoticePreferences by lazy { app.nada.player.updates.UpdateNoticePreferences(this) }
     override fun newImageLoader(context: Context): ImageLoader = ImageLoader.Builder(context)
         .memoryCache {
             MemoryCache.Builder().maxSizeBytes(minOf(32L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 8)).build()

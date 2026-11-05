@@ -49,6 +49,18 @@ class LibraryPersistenceTest {
         assertTrue(MusicRepository(context).playlists.isEmpty())
     }
 
+    @Test fun savingAQueueCreatesACompletePlaylistInItsPlaybackOrder() {
+        val second = song.copy(id = "second", title = "Next")
+        val snapshot = listOf(song, second, song)
+        val playlist = MusicRepository(context).createPlaylist("  Antrean perjalanan  ", snapshot)
+        val reopened = MusicRepository(context).playlists.single()
+        assertEquals(playlist.id, reopened.id)
+        assertEquals("Antrean perjalanan", reopened.name)
+        assertEquals(listOf(song, second), reopened.tracks)
+        assertThrows(IllegalArgumentException::class.java) { MusicRepository(context).createPlaylist("   ", snapshot) }
+        assertEquals(1, MusicRepository(context).playlists.size)
+    }
+
     @Test fun historyIsBoundedAndMovesReplayedTracksToTheFront() {
         val repository = MusicRepository(context)
         repeat(45) { repository.rememberPlayed(song.copy(id = "song$it")) }

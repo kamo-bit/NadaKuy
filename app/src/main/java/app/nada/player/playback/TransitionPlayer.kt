@@ -146,6 +146,10 @@ internal class TransitionPlayer(private val engine: ExoPlayer, private val gain:
         cancelSeek(); if (engine.isPlaying) fade(1f, 90)
         engine.insertNext(item)
     }
+    fun moveUpcoming(entryId: String, targetId: String): Boolean {
+        cancelSeek(); if (engine.isPlaying) fade(1f, 90)
+        return engine.moveUpcoming(entryId, targetId)
+    }
     override fun handleRemoveMediaItems(fromIndex: Int, toIndex: Int): ListenableFuture<*> {
         cancelSeek(); if (engine.isPlaying) fade(1f, 90)
         return super.handleRemoveMediaItems(fromIndex, toIndex)

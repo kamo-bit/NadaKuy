@@ -12,22 +12,26 @@ import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
 import androidx.media3.session.SessionCommand
 import app.nada.player.data.Track
 
-data class QueuedTrack(val mediaIndex: Int, val track: Track, val automatic: Boolean = false)
+data class QueuedTrack(val mediaIndex: Int, val track: Track, val automatic: Boolean = false, val entryId: String = "$mediaIndex:${track.id}")
 
 object QueueCommands {
     val playNext = SessionCommand("app.nada.player.PLAY_NEXT", Bundle.EMPTY)
+    val move = SessionCommand("app.nada.player.QUEUE_MOVE", Bundle.EMPTY)
     const val TRACK = "track"
+    const val ENTRY_ID = "nadaQueueEntryId"
+    const val TARGET_ID = "targetQueueEntryId"
+    const val SAVE_ERROR = "queueSaveError"
 }
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
-fun Track.toMediaItem(queueId: String? = null, automatic: Boolean = false): MediaItem {
+fun Track.toMediaItem(queueId: String? = null, automatic: Boolean = false, entryId: String = java.util.UUID.randomUUID().toString()): MediaItem {
     check(playableInNada) { "Unsupported playback identity" }
     val uri = if (source == "youtube") "nada-youtube://watch/${id.removePrefix("youtube:")}" else streamUrl
     return MediaItem.Builder().setMediaId(id).setUri(uri).setCustomCacheKey(id)
     .setMediaMetadata(MediaMetadata.Builder().setTitle(title).setArtist(artist)
         .setArtworkUri(artwork.takeIf(String::isNotBlank)?.toUri())
         .setExtras(Bundle().apply { putInt("duration", duration); putString("genre", genre); putString("permalink", permalink); putString("source", source)
-            putString(RadioCommands.QUEUE_ID, queueId); putBoolean(RadioCommands.AUTOMATIC, automatic) }).build()).build()
+            putString(RadioCommands.QUEUE_ID, queueId); putBoolean(RadioCommands.AUTOMATIC, automatic); putString(QueueCommands.ENTRY_ID, entryId) }).build()).build()
 }
 
 fun MediaItem.toTrack(): Track = Track(mediaId, mediaMetadata.title?.toString() ?: "Tanpa judul",
@@ -38,7 +42,7 @@ fun MediaItem.toTrack(): Track = Track(mediaId, mediaMetadata.title?.toString() 
 fun Player.togglePlayback() {
     if (isPlaying) pause() else {
         if (playbackState == Player.STATE_ENDED) seekToDefaultPosition()
-        if (playerError != null) prepare()
+        if (playerError != null || playbackState == Player.STATE_IDLE) prepare()
         play()
     }
 }
@@ -46,7 +50,7 @@ fun Player.togglePlayback() {
 fun Player.playQueueItem(mediaIndex: Int) {
     if (mediaIndex !in 0 until mediaItemCount) return
     seekToDefaultPosition(mediaIndex)
-    if (playerError != null) prepare()
+    if (playerError != null || playbackState == Player.STATE_IDLE) prepare()
     play()
 }
 
@@ -55,13 +59,37 @@ fun Player.playQueueItem(mediaIndex: Int) {
 fun Player.upcomingQueue(): List<QueuedTrack> {
     if (currentTimeline.isEmpty) return emptyList()
     val indexes = mutableListOf<Int>()
+    val visited = hashSetOf<Int>()
     var index = currentMediaItemIndex
     val queueRepeat = if (repeatMode == Player.REPEAT_MODE_ALL) Player.REPEAT_MODE_ALL else Player.REPEAT_MODE_OFF
-    while (index != C.INDEX_UNSET && index !in indexes) {
+    while (index != C.INDEX_UNSET && visited.add(index)) {
         indexes += index
         index = currentTimeline.getNextWindowIndex(index, queueRepeat, shuffleModeEnabled)
     }
-    return indexes.map { QueuedTrack(it, getMediaItemAt(it).toTrack(), getMediaItemAt(it).mediaMetadata.extras?.getBoolean(RadioCommands.AUTOMATIC) == true) }
+    return indexes.map { index -> getMediaItemAt(index).let { item -> QueuedTrack(index, item.toTrack(),
+        item.mediaMetadata.extras?.getBoolean(RadioCommands.AUTOMATIC) == true,
+        item.mediaMetadata.extras?.getString(QueueCommands.ENTRY_ID) ?: "$index:${item.mediaId}") } }
+}
+
+/** Move a future occurrence, preserving the current item and circular/shuffled playback order. */
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
+internal fun ExoPlayer.moveUpcoming(entryId: String, targetId: String): Boolean {
+    val visible = upcomingQueue()
+    val from = visible.indexOfFirst { it.entryId == entryId }
+    val to = visible.indexOfFirst { it.entryId == targetId }
+    if (from <= 0 || to <= 0 || from == to) return false
+    val desired = visible.toMutableList().apply { add(to, removeAt(from)) }
+    val moved = desired[to].mediaIndex
+    val following = desired.getOrNull(to + 1)?.mediaIndex ?: currentMediaItemIndex.takeIf { repeatMode == Player.REPEAT_MODE_ALL }
+    if (shuffleModeEnabled) {
+        val permutation = queueIndexes(true).toMutableList().apply { remove(moved) }
+        permutation.add(following?.let(permutation::indexOf) ?: permutation.size, moved)
+        setShuffleOrder(DefaultShuffleOrder(permutation.toIntArray(), System.nanoTime()))
+    } else {
+        val destination = following?.let { if (moved < it) it - 1 else it } ?: (mediaItemCount - 1)
+        moveMediaItem(moved, destination)
+    }
+    return true
 }
 
 /** The service owns both insertion and the shuffle permutation used by ExoPlayer. */

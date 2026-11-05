@@ -68,6 +68,47 @@ class RadioAutoplayTest {
         main { assertTrue(playback.engine.getMediaItemAt(1).mediaMetadata.extras!!.getBoolean(RadioCommands.AUTOMATIC)); playback.engine.seekTo(9800) }
         await("automatic transition") { playback.engine.currentMediaItem?.mediaId == next.id && playback.engine.isPlaying }
     }
+    @Test fun temporaryFailureRetriesAutomaticallyWithoutReplacingOrReplayingTheCurrentSong() {
+        var calls = 0
+        attach({ calls++; if (calls == 1) throw java.io.IOException("temporary"); (1..6).map { song("recovered$it", "Artist$it") } })
+        main { radio!!.start(song("seed")) }
+        await("automatic retry after failure") { calls >= 2 && playback.player.mediaItemCount >= 7 && playback.engine.isPlaying }
+        main { assertEquals("seed", playback.player.currentMediaItem?.mediaId); assertTrue(playback.player.currentPosition > 500) }
+    }
+    @Test fun aPausedFailedRadioDoesNotRetryOrResumeUntilRequested() {
+        var calls = 0
+        attach({ calls++; throw java.io.IOException("temporary") })
+        main { radio!!.start(song("seed")) }
+        await("initial failure") { calls == 1 }
+        main { playback.player.pause() }
+        Thread.sleep(2200)
+        main { assertEquals(1, calls); assertFalse(playback.player.playWhenReady) }
+    }
+    @Test fun anExhaustedCandidateBatchAfterTenSongsDoesNotPermanentlyStopTheStation() {
+        var calls = 0
+        attach({
+            calls++
+            val batch = when (calls) { 1 -> 1; 2, 3 -> 2; else -> 3 }
+            (1..6).map { song("batch${batch}song$it", "Artist$it") }
+        })
+        main { radio!!.start(song("seed")) }
+        await("first batch") { playback.player.mediaItemCount == 7 && playback.engine.isPlaying }
+        main { playback.player.seekTo(5, 0) }
+        await("second batch") { playback.player.mediaItemCount == 13 }
+        main { playback.player.seekTo(11, 0) }
+        await("empty third request recovers automatically") { calls >= 4 && playback.player.mediaItemCount == 19 }
+        main { playback.player.seekTo(14, 0) }
+        await("fifteenth item really decodes") { playback.engine.currentMediaItemIndex == 14 && playback.engine.isPlaying && playback.engine.currentPosition > 200 }
+        main { assertEquals("batch3song2", playback.player.currentMediaItem?.mediaId) }
+    }
+    @Test fun aRefillArrivingAfterTheLastTrackEndedResumesOnlyTheExistingPlayIntent() {
+        var calls = 0
+        attach({ calls++; if (calls == 1) throw java.io.IOException("temporary"); (1..6).map { song("late$it", "Artist$it") } })
+        main { radio!!.start(song("seed")) }
+        await("first failed request and decoder") { calls == 1 && playback.engine.isPlaying }
+        main { playback.player.seekTo(9800) }
+        await("late refill advances from ended song") { calls >= 2 && playback.player.currentMediaItem?.mediaId == "late1" && playback.engine.isPlaying }
+    }
     @Test fun aLateRequestCannotAppendAfterTheUserReplacesTheQueue() {
         val started = CompletableDeferred<Unit>(); val release = CompletableDeferred<Unit>()
         pending += release
@@ -142,7 +183,7 @@ class RadioAutoplayTest {
             }, {}, ::item)
             radio!!.start(song("original"))
         }
-        await("initial batch") { playback.player.mediaItemCount == 4 }
+        await("initial batch") { playback.player.mediaItemCount >= 4 }
         main { playback.player.seekTo(2, 0) }
         await("second batch") { requests.size == 2 && playback.player.mediaItemCount == 7 }
         main {

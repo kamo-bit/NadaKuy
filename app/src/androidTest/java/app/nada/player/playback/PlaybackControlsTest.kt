@@ -15,6 +15,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import app.nada.player.data.Track
 import app.nada.player.MainActivity
+import app.nada.player.NadaApplication
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -32,6 +33,9 @@ class PlaybackControlsTest {
     private lateinit var controller: MediaController
     private lateinit var audio: File
     private lateinit var activity: ActivityScenario<MainActivity>
+    private var previousAutoplay = false
+    private var previousHistory: String? = null
+    private val recommendations get() = (context.applicationContext as NadaApplication).recommendationSettings
     private fun main(block: () -> Unit) = InstrumentationRegistry.getInstrumentation().runOnMainSync(block)
     private fun await(description: String, condition: () -> Boolean) {
         val until = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
@@ -45,6 +49,9 @@ class PlaybackControlsTest {
     }
 
     @Before fun connect() {
+        // A single-song completion test requires autoplay off, independent of the user's setting.
+        main { previousAutoplay = recommendations.state.value.autoplay; recommendations.setAutoplay(false) }
+        previousHistory = context.getSharedPreferences("nada_library", Context.MODE_PRIVATE).getString("history", null)
         // Generated silence: deterministic playback completion without catalog/network dependencies.
         audio = File(context.cacheDir, "playback-controls.wav")
         val size = 16_000 * 2 * 2
@@ -67,6 +74,10 @@ class PlaybackControlsTest {
         main { controller.stop(); controller.clearMediaItems(); controller.release() }
         activity.close()
         audio.delete()
+        main { recommendations.setAutoplay(previousAutoplay) }
+        context.getSharedPreferences("nada_library", Context.MODE_PRIVATE).edit().apply {
+            if (previousHistory == null) remove("history") else putString("history", previousHistory)
+        }.apply()
     }
 
     private fun timer(mode: String, duration: Long = 0) {

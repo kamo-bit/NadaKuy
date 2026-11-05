@@ -87,6 +87,8 @@ data class MusicState(
     val spotifyConnected: Boolean = false, val spotifyBusy: Boolean = false, val spotifyError: String? = null,
     val queueError: String? = null,
     val queueHasCurrent: Boolean = true,
+    val queueSaveError: String? = null,
+    val normalizeVolume: Boolean = true,
     val youtubeVideos: Boolean = false,
     val offline: OfflineState = OfflineState(),
     val batchDownloading: Boolean = false,
@@ -102,6 +104,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val catalogCache = (application as NadaApplication).catalogCache
     private val recommendationCatalog = app.nada.player.recommendations.RadioCatalog(application as NadaApplication)
     private val recommendationSettings = (application as NadaApplication).recommendationSettings
+    private val playbackSettings = (application as NadaApplication).playbackSettings
     private val lyricsRepository = LyricsRepository(application)
     private var lyricsJob: Job? = null
     var lyricsState by mutableStateOf(LyricsState())
@@ -113,6 +116,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     var transferState by mutableStateOf(CollectionTransferState())
         private set
     var updateState by mutableStateOf(UpdateState())
+        private set
+    private val updateNotices = (application as NadaApplication).updateNoticePreferences
+    var updateNotice by mutableStateOf<app.nada.player.updates.AppRelease?>(null)
         private set
     var updateDownload by mutableStateOf(UpdateDownloadState())
         private set
@@ -180,6 +186,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
+        viewModelScope.launch { playbackSettings.normalization.collect { state = state.copy(normalizeVolume = it) } }
         viewModelScope.launch { recommendationSettings.state.collect {
             state = state.copy(recommendationPreferences = it)
             refreshRecommendations()
@@ -354,6 +361,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun togglePlayback() { if (state.source == "spotify") spotifyRemote.toggle() else controller?.togglePlayback() }
+    fun setVolumeNormalization(enabled: Boolean) = playbackSettings.setNormalization(enabled)
     fun startRadio(track: Track) {
         if (!track.playableInNada) return
         if (state.source != track.source) selectSource(track.source)
@@ -514,14 +522,40 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun checkForUpdates() {
+    fun checkForUpdatesOnOpen() {
+        if (updateState.checking || !updateNotices.policy.shouldCheck(SystemClock.elapsedRealtime())) return
+        checkForUpdates(automatic = true)
+    }
+
+    fun dismissUpdateNotice() {
+        updateNotice?.let { updateNotices.snooze(it.version, System.currentTimeMillis()) }
+        updateNotice = null
+    }
+
+    fun openUpdateNotice() {
+        dismissUpdateNotice()
+        requestUpdatesScreen()
+    }
+
+    fun checkForUpdates() = checkForUpdates(automatic = false)
+
+    private fun checkForUpdates(automatic: Boolean) {
         if (updateState.checking) return
-        updateState = UpdateState(checking = true)
+        val previous = updateState
+        updateState = previous.copy(checking = true, error = null)
         viewModelScope.launch {
-            try { updateState = AppUpdates.result(AppUpdates.latest(), installedVersion) }
-            catch (error: CancellationException) { updateState = UpdateState(); throw error }
+            try {
+                val release = AppUpdates.latest()
+                updateState = AppUpdates.result(release, installedVersion)
+                updateNotices.policy.checked(SystemClock.elapsedRealtime(), succeeded = true)
+                if (automatic && updateNotices.policy.offer(release, installedVersion, System.currentTimeMillis())) {
+                    updateNotice = release
+                }
+            }
+            catch (error: CancellationException) { updateState = previous; throw error }
             catch (error: Exception) {
-                updateState = UpdateState(error = if (error is IllegalStateException) error.message
+                updateNotices.policy.checked(SystemClock.elapsedRealtime(), succeeded = false)
+                updateState = if (automatic) previous.copy(checking = false) else UpdateState(error = if (error is IllegalStateException) error.message
                     else "Tidak bisa memeriksa pembaruan. Periksa internet, lalu coba lagi.")
             }
         }
@@ -557,6 +591,17 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         try { action() } catch (error: Exception) { state = state.copy(message = "Unduhan belum bisa diubah. Coba lagi.") }
     }
     fun playQueueItem(mediaIndex: Int) { controller?.playQueueItem(mediaIndex); updatePlayer() }
+    fun moveQueueItem(entryId: String, targetId: String) {
+        val player = controller ?: return
+        val result = player.sendCustomCommand(QueueCommands.move, Bundle().apply {
+            putString(QueueCommands.ENTRY_ID, entryId); putString(QueueCommands.TARGET_ID, targetId)
+        })
+        result.addListener({
+            if (runCatching { result.get().resultCode != SessionResult.RESULT_SUCCESS }.getOrDefault(true))
+                state = state.copy(message = "Antrean berubah. Coba atur urutannya lagi.")
+            updatePlayer()
+        }, ContextCompat.getMainExecutor(getApplication()))
+    }
     fun removeQueueItem(mediaIndex: Int) {
         controller?.let { if (mediaIndex in 0 until it.mediaItemCount && mediaIndex != it.currentMediaItemIndex) it.removeMediaItem(mediaIndex) }
         updatePlayer()
@@ -603,6 +648,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         else { repository.toggleLike(track); syncLibrary() }
     }
     fun createPlaylist(name: String): String { val result = repository.createPlaylist(name); syncLibrary(); return result.id }
+    fun saveQueuePlaylist(name: String, tracks: List<Track>) {
+        if (name.isBlank() || tracks.isEmpty()) return
+        repository.createPlaylist(name, tracks)
+        syncLibrary()
+        state = state.copy(message = "Antrean disimpan ke playlist ${name.trim().take(60)}")
+    }
     fun addToPlaylist(id: String, track: Track) { repository.addToPlaylist(id, track); syncLibrary(); state = state.copy(message = "Lagu ditambahkan ke playlist") }
     fun removeFromPlaylist(id: String, track: Track) { repository.removeFromPlaylist(id, track.id); syncLibrary() }
     fun deletePlaylist(id: String) { repository.deletePlaylist(id); syncLibrary() }
@@ -630,7 +681,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 radioTitle = player.sessionExtras.getString(RadioCommands.TITLE), radioLoading = player.sessionExtras.getBoolean(RadioCommands.LOADING),
                 radioError = player.sessionExtras.getString(RadioCommands.ERROR),
                 sleepRemainingSeconds = ((player.sessionExtras.getLong(SleepCommands.DEADLINE) - SystemClock.elapsedRealtime()).coerceAtLeast(0) + 999) / 1000,
-                queue = player.upcomingQueue(), queueHasCurrent = true)
+                queue = player.upcomingQueue(), queueHasCurrent = true, queueSaveError = player.sessionExtras.getString(QueueCommands.SAVE_ERROR))
         }
     }
 

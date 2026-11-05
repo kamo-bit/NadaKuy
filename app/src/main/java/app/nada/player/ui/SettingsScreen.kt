@@ -30,7 +30,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-private enum class SettingsSection { TITLE, PERSONALIZATION, BACKUP, DOWNLOADS, UPDATES }
+private enum class SettingsSection { TITLE, PLAYBACK, PERSONALIZATION, BACKUP, DOWNLOADS, UPDATES }
 
 @Composable
 fun SettingsScreen(state: MusicState, model: MusicViewModel, modifier: Modifier) {
@@ -95,6 +95,12 @@ fun SettingsScreen(state: MusicState, model: MusicViewModel, modifier: Modifier)
                 }
             }
         }
+        SettingsSection.PLAYBACK -> {
+            Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Pemutaran", style = MaterialTheme.typography.titleLarge)
+                VolumeNormalizationControl(state.normalizeVolume, state.source == "spotify", model::setVolumeNormalization)
+            }
+        }
         SettingsSection.BACKUP -> {
             Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Backup koleksi", style = MaterialTheme.typography.titleLarge)
@@ -156,5 +162,19 @@ fun SettingsScreen(state: MusicState, model: MusicViewModel, modifier: Modifier)
             } },
             confirmButton = { TextButton(onClick = model::restoreCollection) { Text("Gabungkan") } },
             dismissButton = { TextButton(onClick = model::cancelCollectionRestore) { Text("Batal") } })
+    }
+}
+
+@Composable
+internal fun VolumeNormalizationControl(enabled: Boolean, spotify: Boolean, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(end = 16.dp)) {
+            Text("Normalisasi volume", style = MaterialTheme.typography.titleMedium)
+            Text(if (spotify) "Atur normalisasi di aplikasi Spotify. Pilihan ini tetap disimpan untuk YouTube dan Audius."
+                else "Seimbangkan suara antar lagu secara bertahap. Berlaku juga untuk musik offline.",
+                Modifier.padding(top = 4.dp), color = NadaMuted, style = MaterialTheme.typography.bodyMedium)
+        }
+        Switch(checked = enabled, onCheckedChange = onChange, enabled = !spotify,
+            modifier = Modifier.semantics { contentDescription = "Normalisasi volume" })
     }
 }

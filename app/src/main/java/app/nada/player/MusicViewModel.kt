@@ -47,6 +47,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.catch
 import app.nada.player.updates.AppUpdates
 import app.nada.player.updates.UpdateState
@@ -63,6 +64,8 @@ import app.nada.player.spotify.SpotifyAuth
 import app.nada.player.spotify.SpotifyApi
 import app.nada.player.spotify.SpotifyRemote
 import app.nada.player.youtube.YouTubeCatalog
+import app.nada.player.youtube.YouTubeLinks
+import app.nada.player.youtube.YouTubePlaylistPreview
 import app.nada.player.recommendations.ListeningHistory
 import app.nada.player.recommendations.ListeningRecommendations
 import app.nada.player.recommendations.QualifiedListening
@@ -98,6 +101,12 @@ data class MusicState(
 data class CollectionTransferState(val busy: String? = null, val message: String? = null,
     val error: String? = null, val pending: CollectionBackup? = null)
 
+internal data class PlaylistImportState(
+    val loading: Boolean = false,
+    val preview: YouTubePlaylistPreview? = null,
+    val error: String? = null,
+)
+
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = MusicRepository(application)
@@ -115,6 +124,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     val installedVersion: String = application.packageManager.getPackageInfo(application.packageName, 0).versionName ?: "0.0.0"
     var transferState by mutableStateOf(CollectionTransferState())
         private set
+    internal var playlistImport by mutableStateOf(PlaylistImportState())
+        private set
+    private var playlistImportJob: Job? = null
     var updateState by mutableStateOf(UpdateState())
         private set
     private val updateNotices = (application as NadaApplication).updateNoticePreferences
@@ -647,11 +659,55 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (track.source == "spotify") spotifyRemote.toggleLike(track) { added -> rememberSpotifyLike(track, added) }
         else { repository.toggleLike(track); syncLibrary() }
     }
-    fun createPlaylist(name: String): String { val result = repository.createPlaylist(name); syncLibrary(); return result.id }
+    fun createPlaylist(name: String, tracks: List<Track> = emptyList()): String {
+        val result = repository.createPlaylist(name, tracks)
+        syncLibrary()
+        return result.id
+    }
+
+    internal fun resetPlaylistImport() {
+        playlistImportJob?.cancel()
+        playlistImportJob = null
+        playlistImport = PlaylistImportState()
+    }
+
+    internal fun previewPlaylist(link: String) {
+        if (playlistImport.loading) return
+        val url = YouTubeLinks.playlistUrl(link)
+        if (url == null) {
+            playlistImport = PlaylistImportState(error = "Masukkan tautan playlist publik dari YouTube atau YouTube Music.")
+            return
+        }
+        playlistImport = PlaylistImportState(loading = true)
+        playlistImportJob = viewModelScope.launch {
+            try {
+                val result = withTimeoutOrNull(60_000) { YouTubeCatalog.playlistPreview(url) }
+                ensureActive()
+                playlistImport = when {
+                    result == null -> PlaylistImportState(error = "Playlist terlalu lama dimuat. Periksa koneksi, lalu coba lagi.")
+                    result.tracks.isEmpty() -> PlaylistImportState(error = "Tidak ada lagu yang dapat dibaca. Coba playlist publik lain.")
+                    else -> PlaylistImportState(preview = result)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                ensureActive()
+                playlistImport = PlaylistImportState(error = "Playlist belum bisa dibaca. Periksa koneksi dan pastikan playlist dapat dibuka tanpa login.")
+            }
+        }
+    }
+
+    internal fun saveImportedPlaylist(): String? {
+        val preview = playlistImport.preview ?: return null
+        val id = createPlaylist(preview.name, preview.tracks)
+        resetPlaylistImport()
+        state = state.copy(message = "Playlist disimpan ke Koleksi")
+        return id
+    }
+
     fun saveQueuePlaylist(name: String, tracks: List<Track>) {
         if (name.isBlank() || tracks.isEmpty()) return
-        repository.createPlaylist(name, tracks)
-        syncLibrary()
+        createPlaylist(name, tracks)
         state = state.copy(message = "Antrean disimpan ke playlist ${name.trim().take(60)}")
     }
     fun addToPlaylist(id: String, track: Track) { repository.addToPlaylist(id, track); syncLibrary(); state = state.copy(message = "Lagu ditambahkan ke playlist") }

@@ -21,6 +21,7 @@ import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import org.schabi.newpipe.extractor.localization.ContentCountry
 import org.schabi.newpipe.extractor.localization.Localization
 import org.schabi.newpipe.extractor.search.SearchInfo
+import org.schabi.newpipe.extractor.stream.ContentAvailability
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import java.io.IOException
@@ -54,6 +55,21 @@ object YouTubeLinks {
         }.getOrNull()
     }
     fun watch(id: String) = "https://www.youtube.com/watch?v=$id"
+
+    internal fun playlistUrl(value: String): String? {
+        val uri = runCatching { URI(value.trim()) }.getOrNull() ?: return null
+        if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.userInfo != null || uri.port != -1) return null
+        val isPlaylistLink = when (uri.host?.lowercase()) {
+            "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com" -> uri.path in setOf("/playlist", "/watch")
+            "youtu.be" -> videoId(value.trim()) != null
+            else -> false
+        }
+        if (!isPlaylistLink) return null
+        val id = uri.rawQuery.orEmpty().split('&').filter { it.substringBefore('=') == "list" }
+            .singleOrNull()?.substringAfter('=', "") ?: return null
+        if (!id.matches(Regex("[A-Za-z0-9_-]{10,100}"))) return null
+        return "https://www.youtube.com/playlist?list=$id"
+    }
 
     fun artwork(url: String): String {
         val uri = runCatching { URI(url) }.getOrNull() ?: return url
@@ -95,7 +111,16 @@ private class YouTubeDownloader : Downloader() {
     }
 }
 
+internal data class YouTubePlaylistPreview(
+    val name: String,
+    val tracks: List<Track>,
+    val skipped: Int,
+    val incomplete: Boolean,
+)
+
 object YouTubeCatalog {
+    private const val PLAYLIST_ENTRY_LIMIT = 500
+    private const val PLAYLIST_PAGE_LIMIT = 5
     private val engineLock = Any()
     private var initialized = false
     private data class SearchEntry(val at: Long, val tracks: List<Track>)
@@ -132,12 +157,77 @@ object YouTubeCatalog {
 
     private fun entries(items: List<InfoItem>, videos: Boolean, limit: Int = 40): List<YouTubeSearchRanking.Entry> =
         items.filterIsInstance<StreamInfoItem>().take(limit).mapNotNull { item ->
-                val id = YouTubeLinks.videoId(item.url) ?: return@mapNotNull null
-                if (item.duration <= 0) return@mapNotNull null // Live streams need different queue/timer semantics.
-                YouTubeSearchRanking.Entry(Track("youtube:$id", item.name, item.uploaderName.orEmpty().ifBlank { "YouTube" },
-                    YouTubeLinks.artwork(item.thumbnails.maxByOrNull { it.height }?.url.orEmpty()), item.duration.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-                    if (videos) "YouTube" else "YouTube Music", YouTubeLinks.watch(id), "youtube"), item.isUploaderVerified)
+            item.toCatalogTrack(videos)?.let { YouTubeSearchRanking.Entry(it, item.isUploaderVerified) }
         }.distinctBy { it.track.id }
+
+    private fun StreamInfoItem.toCatalogTrack(videos: Boolean): Track? {
+        val id = YouTubeLinks.videoId(url) ?: return null
+        if (duration <= 0) return null // Live streams need different queue/timer semantics.
+        val title = name.orEmpty().takeIf(String::isNotBlank) ?: return null
+        return Track("youtube:$id", title, uploaderName.orEmpty().ifBlank { "YouTube" },
+            YouTubeLinks.artwork(thumbnails.maxByOrNull { it.height }?.url.orEmpty()),
+            duration.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+            if (videos) "YouTube" else "YouTube Music", YouTubeLinks.watch(id), "youtube")
+    }
+
+    internal suspend fun playlistPreview(url: String): YouTubePlaylistPreview = withContext(Dispatchers.IO) {
+        val requestContext = currentCoroutineContext()
+        val service = ServiceList.YouTube
+        val info = synchronized(engineLock) {
+            requestContext.ensureActive()
+            initialize()
+            PlaylistInfo.getInfo(service, url)
+        }
+        val tracks = linkedMapOf<String, Track>()
+        val seenPages = mutableListOf<Page>()
+        var items = info.relatedItems
+        var next = info.nextPage
+        var examined = 0
+        var incomplete = false
+        while (true) {
+            requestContext.ensureActive()
+            val remaining = PLAYLIST_ENTRY_LIMIT - examined
+            val batch = items.take(remaining)
+            for (item in batch) {
+                when (item.contentAvailability) {
+                    ContentAvailability.AVAILABLE, ContentAvailability.UNKNOWN -> Unit
+                    else -> continue
+                }
+                val track = item.toCatalogTrack(videos = true) ?: continue
+                tracks.putIfAbsent(track.id, track)
+            }
+            examined += batch.size
+            if (items.size > batch.size) {
+                incomplete = true
+                break
+            }
+            val cursor = next?.takeIf(Page::isValid) ?: break
+            if (examined == PLAYLIST_ENTRY_LIMIT || seenPages.size >= PLAYLIST_PAGE_LIMIT - 1 ||
+                seenPages.any { samePage(it, cursor) }) {
+                incomplete = true
+                break
+            }
+            val page = try {
+                synchronized(engineLock) {
+                    requestContext.ensureActive()
+                    PlaylistInfo.getMoreItems(service, url, cursor)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                incomplete = true
+                break
+            }
+            seenPages.add(cursor)
+            items = page.items
+            next = page.nextPage
+        }
+        YouTubePlaylistPreview(info.name.orEmpty().trim().take(60).ifBlank { "Playlist YouTube" },
+            tracks.values.toList(), examined - tracks.size, incomplete)
+    }
+
+    private fun samePage(a: Page, b: Page): Boolean =
+        a.url == b.url && a.id == b.id && a.ids == b.ids && a.cookies == b.cookies && a.body.contentEquals(b.body)
 
     private fun rememberRelated(id: String, items: List<InfoItem>) {
         val tracks = YouTubeSearchRanking.rank("", entries(items, false))
@@ -162,31 +252,31 @@ object YouTubeCatalog {
         var started = false
         var cursor: Page? = null
         val previous = ArrayDeque<Page>()
-        fun same(a: Page, b: Page) = a.url == b.url && a.id == b.id && a.ids == b.ids && a.cookies == b.cookies && a.body.contentEquals(b.body)
         return RadioPages {
             if (started && cursor == null) null else {
                 val selected = cursor
                 val result = withContext(Dispatchers.IO) {
                     synchronized(engineLock) {
                         initialize()
-                        if (!started) {
-                            try {
-                                val info = PlaylistInfo.getInfo(ServiceList.YouTube, url)
-                                entries(info.relatedItems, false, 80).map { it.track } to info.nextPage
-                            } catch (cancelled: CancellationException) { throw cancelled }
-                            catch (_: Exception) {
-                                val info = StreamInfo.getInfo(ServiceList.YouTube, YouTubeLinks.watch(id))
-                                entries(info.relatedItems.orEmpty(), false, 80).map { it.track } to null
-                            }
+                        if (selected != null) {
+                            val page = PlaylistInfo.getMoreItems(ServiceList.YouTube, url, selected)
+                            entries(page.items, false, 80).map { it.track } to page.nextPage
                         } else {
-                            val info = PlaylistInfo.getMoreItems(ServiceList.YouTube, url, requireNotNull(selected))
-                            entries(info.items, false, 80).map { it.track } to info.nextPage
+                            try {
+                                val mix = PlaylistInfo.getInfo(ServiceList.YouTube, url)
+                                entries(mix.relatedItems, false, 80).map { it.track } to mix.nextPage
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                val stream = StreamInfo.getInfo(ServiceList.YouTube, YouTubeLinks.watch(id))
+                                entries(stream.relatedItems.orEmpty(), false, 80).map { it.track } to null
+                            }
                         }
                     }
                 }
                 currentCoroutineContext().ensureActive()
                 selected?.let { previous.addLast(it); if (previous.size > 8) previous.removeFirst() }
-                cursor = result.second?.takeIf { Page.isValid(it) && previous.none { old -> same(old, it) } }
+                cursor = result.second?.takeIf { Page.isValid(it) && previous.none { old -> samePage(old, it) } }
                 started = true
                 result.first
             }

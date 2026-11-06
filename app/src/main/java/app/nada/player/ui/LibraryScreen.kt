@@ -24,7 +24,7 @@ import app.nada.player.MusicState
 import app.nada.player.data.Track
 
 @Composable
-fun LibraryScreen(state: MusicState, modifier: Modifier, open: (String) -> Unit, create: () -> Unit) {
+fun LibraryScreen(state: MusicState, modifier: Modifier, open: (String) -> Unit, create: () -> Unit, importPlaylist: () -> Unit) {
     var filter by rememberSaveable { mutableIntStateOf(0) }
     var query by rememberSaveable { mutableStateOf("") }
     var searching by rememberSaveable { mutableStateOf(false) }
@@ -43,11 +43,23 @@ fun LibraryScreen(state: MusicState, modifier: Modifier, open: (String) -> Unit,
             listOf("Semua", "Playlist", "Disukai", "Unduhan").forEachIndexed { index, label -> FilterChip(filter == index, { filter = index }, label = { Text(label) }, shape = RoundedCornerShape(50)) }
         } }
         if (searching) item { OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), singleLine = true, placeholder = { Text("Cari di koleksimu") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }) }
-        item { Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { alphabetical = !alphabetical }) { Icon(Icons.Rounded.SwapVert, null, Modifier.size(20.dp), tint = Color.White); Text(if (alphabetical) "Nama" else "Baru dibuat", Modifier.padding(start = 6.dp), color = Color.White) }
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = { grid = !grid }) { Icon(if (grid) Icons.Rounded.ViewList else Icons.Rounded.GridView, if (grid) "Tampilkan daftar" else "Tampilkan grid") }
-        } }
+        item {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.SpaceBetween) {
+                    TextButton(onClick = { alphabetical = !alphabetical }) {
+                        Icon(Icons.Rounded.SwapVert, null, Modifier.size(20.dp), tint = Color.White)
+                        Text(if (alphabetical) "Nama" else "Baru dibuat", Modifier.padding(start = 6.dp), color = Color.White)
+                    }
+                    if (filter == 0 || filter == 1) {
+                        TextButton(onClick = importPlaylist) { Text("Impor playlist") }
+                    }
+                }
+                IconButton(onClick = { grid = !grid }, modifier = Modifier.size(48.dp)) {
+                    Icon(if (grid) Icons.Rounded.ViewList else Icons.Rounded.GridView,
+                        if (grid) "Tampilkan daftar" else "Tampilkan grid")
+                }
+            }
+        }
         if ((filter == 0 || filter == 3) && "Unduhan".contains(query, true)) item {
             val ready = state.offline.tracks.count { it.ready }
             val pending = state.offline.tracks.count { !it.ready }

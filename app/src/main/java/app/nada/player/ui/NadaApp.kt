@@ -74,6 +74,8 @@ private val genres = listOf(
 )
 private val coverColors = listOf(Color(0xFF376152), Color(0xFF534A74), Color(0xFF77533D), Color(0xFF36546D))
 
+private const val IMPORT_PLAYLIST = "import-playlist"
+
 @Composable
 fun NadaApp(model: MusicViewModel = viewModel()) {
     val s = model.state
@@ -111,10 +113,14 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
     }
     fun startDownload(track: Track) { requestDownloadNotifications(); model.download(track) }
     fun showDownloads() { fullPlayer = false; showLyrics = false; tab = 2; collection = "downloads" }
-    LaunchedEffect(s.source) { if (collection != "downloads") collection = null; fullPlayer = false; showLyrics = false; showQueue = false; showSleepTimer = false }
+    LaunchedEffect(s.source) {
+        if (collection != "downloads" && collection != IMPORT_PLAYLIST) collection = null
+        fullPlayer = false; showLyrics = false; showQueue = false; showSleepTimer = false
+    }
     LaunchedEffect(showQueue) { if (showQueue) model.refreshSpotifyQueue() }
     LaunchedEffect(s.message) { s.message?.let { snackbar.showSnackbar(it); model.dismissMessage() } }
     LaunchedEffect(collection) {
+        if (collection != IMPORT_PLAYLIST) model.resetPlaylistImport()
         if (collection?.startsWith("genre:") == true && s.genreTracks.isEmpty() && !s.genreLoading) model.loadGenre(collection!!.removePrefix("genre:"))
     }
     BackHandler(showLyrics || fullPlayer || collection != null || tab != 0) {
@@ -159,6 +165,10 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
                 when {
                     tab == 3 -> SettingsScreen(s, model, content)
                     collection == "downloads" -> DownloadsScreen(s, model, content, { collection = null }, { collection = null; tab = 1 })
+                    collection == IMPORT_PLAYLIST -> PlaylistImportScreen(content, model.playlistImport,
+                        back = { collection = null }, previewPlaylist = model::previewPlaylist,
+                        reset = model::resetPlaylistImport,
+                        save = { model.saveImportedPlaylist()?.let { collection = "playlist:$it" } })
                     collection != null -> {
                         val key = collection!!
                         val playlist = s.playlists.find { key == "playlist:${it.id}" }
@@ -173,7 +183,10 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
                     }
                     tab == 0 -> HomeScreen(s, model, content, { options = it }, ::openGenre, { collection = "history" }, { collection = "liked" }, { showInfo = true }, { showSpotify = true })
                     tab == 1 -> SearchScreen(s, model, content, { options = it }, ::openGenre)
-                    else -> LibraryScreen(s, content, { collection = it }, { playlistName = ""; creating = true })
+                    else -> LibraryScreen(s, content, { collection = it }, { playlistName = ""; creating = true }) {
+                        model.resetPlaylistImport()
+                        collection = IMPORT_PLAYLIST
+                    }
                 }
             }
         }

@@ -31,8 +31,8 @@ class MainActivity : ComponentActivity() {
     setIntent(intent)
     if (intent.getBooleanExtra(OPEN_UPDATES, false)) model.requestUpdatesScreen()
   }
-  override fun onStart() { super.onStart(); model.resumeSpotify(this) }
-  override fun onStop() { model.suspendSpotify(); super.onStop() }
+  override fun onStart() { super.onStart(); model.onForeground(this) }
+  override fun onStop() { model.onBackground(); super.onStop() }
   companion object {
     private const val OPEN_UPDATES = "openUpdates"
     fun updatesIntent(context: Context): Intent = Intent(context, MainActivity::class.java)

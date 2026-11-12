@@ -13,12 +13,11 @@ import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import app.nada.player.MusicState
 import app.nada.player.data.Track
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 /** Separate lazy items let off-screen sections leave composition, including their image requests. */
-internal fun LazyListScope.personalizedHome(state: MusicState, play: (List<Track>, Int) -> Unit,
+internal fun LazyListScope.personalizedHome(state: HomeFeedState, play: (List<Track>, Int) -> Unit,
     retry: () -> Unit, loadMore: () -> Unit, options: (Track) -> Unit = {}) {
     item(key = "recommendation-heading", contentType = "heading") {
         SectionTitle("Pilihan untukmu")

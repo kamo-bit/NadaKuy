@@ -30,8 +30,8 @@ fun LibraryScreen(state: MusicState, modifier: Modifier, open: (String) -> Unit,
     var searching by rememberSaveable { mutableStateOf(false) }
     var grid by rememberSaveable { mutableStateOf(false) }
     var alphabetical by rememberSaveable { mutableStateOf(false) }
-    val filtered = state.playlists.filter { it.name.contains(query, ignoreCase = true) }
-    val playlists = if (alphabetical) filtered.sortedBy { it.name.lowercase() } else filtered.asReversed()
+    val filtered = remember(state.playlists, query) { state.playlists.filter { it.name.contains(query, ignoreCase = true) } }
+    val playlists = remember(filtered, alphabetical) { if (alphabetical) filtered.sortedBy { it.name.lowercase() } else filtered.asReversed() }
     LazyColumn(modifier, contentPadding = PaddingValues(bottom = 24.dp)) {
         item { Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(36.dp).clip(RoundedCornerShape(50)).background(NadaGreen), contentAlignment = Alignment.Center) { Text("N", color = Color.Black, style = MaterialTheme.typography.titleMedium) }

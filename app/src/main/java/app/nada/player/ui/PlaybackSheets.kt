@@ -10,24 +10,35 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import app.nada.player.MusicState
 import app.nada.player.MusicViewModel
+import app.nada.player.PlaybackProgress
 
-fun sleepTimerLabel(state: MusicState): String? = when {
+private fun sleepTimerLabel(state: MusicState, seconds: Long): String? = when {
     state.sleepEndOfTrack -> "Akhir lagu"
     state.sleepDeadline > 0 -> {
-        val seconds = state.sleepRemainingSeconds
         "%d:%02d".format(seconds / 60, seconds % 60)
     }
     else -> null
 }
 
 @Composable
+internal fun SleepTimerStatus(state: MusicState, progress: () -> PlaybackProgress, modifier: Modifier,
+    prefix: String, emptyText: String? = null, color: Color = NadaMuted, style: TextStyle = MaterialTheme.typography.bodyMedium) {
+    val seconds = if (state.sleepDeadline > 0) progress().sleepRemainingSeconds else 0
+    val text = sleepTimerLabel(state, seconds)?.let { "$prefix$it" } ?: emptyText
+    text?.let { Text(it, modifier, color = color, style = style) }
+}
+
+@Composable
 fun SleepTimerSheet(state: MusicState, model: MusicViewModel, dismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = dismiss, containerColor = NadaSurface, properties = NadaSheetProperties, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Text("Timer tidur", Modifier.padding(horizontal = 24.dp, vertical = 12.dp), style = MaterialTheme.typography.titleLarge)
-        Text(sleepTimerLabel(state)?.let { "Aktif · $it" } ?: "Hentikan musik secara otomatis.", Modifier.padding(horizontal = 24.dp, vertical = 8.dp), color = NadaMuted)
+        SleepTimerStatus(state, { model.progress }, Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+            "Aktif · ", "Hentikan musik secara otomatis.", style = LocalTextStyle.current)
         LazyColumn {
             items(listOf(5, 10, 15, 30, 45, 60)) { minutes ->
                 SheetAction("$minutes menit", Icons.Rounded.Timer) { model.setSleepTimer(minutes); dismiss() }

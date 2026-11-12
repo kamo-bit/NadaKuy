@@ -126,9 +126,9 @@ internal class RadioAutoplay(private val player: Player, private val preferences
             if (!player.playWhenReady || SystemClock.elapsedRealtime() < retryAt) return
             error = null; attempted = null
         }
-        val upcoming = player.upcomingQueue()
+        val upcoming = player.upcomingQueueIndexes(limit = 5)
         if (upcoming.size > 4) return
-        val seed = upcoming.lastOrNull()?.track ?: return
+        val seed = upcoming.lastOrNull()?.let { player.getMediaItemAt(it).toTrack() } ?: return
         val origin = anchor ?: player.currentMediaItem?.toTrack()?.also { anchor = it } ?: return
         if (!seed.playableInNada || attempted == seed.id) return
         attempted = seed.id

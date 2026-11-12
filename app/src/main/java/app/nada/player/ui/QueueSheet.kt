@@ -62,6 +62,7 @@ internal fun QueuePlaylistDialog(count: Int, dismiss: () -> Unit, save: (String)
 internal fun ColumnScope.QueueSheetContent(state: MusicState, onSave: () -> Unit, onMove: (String, String) -> Unit,
     onPlay: (Int) -> Unit, onRemove: (Int) -> Unit, onSpotify: () -> Unit = {}, radio: @Composable () -> Unit = {}) {
     val local = state.source != "spotify"
+    val indicators = rememberTrackIndicators(state)
     val upcoming = if (state.queueHasCurrent) state.queue.drop(1) else state.queue
     val byId = remember(upcoming) { upcoming.associateBy(QueuedTrack::entryId) }
     var displayed by remember { mutableStateOf(upcoming) }
@@ -103,7 +104,9 @@ internal fun ColumnScope.QueueSheetContent(state: MusicState, onSave: () -> Unit
         }
         item(key = "current") {
             Text("Sedang diputar", Modifier.padding(horizontal = 24.dp, vertical = 12.dp), style = MaterialTheme.typography.titleMedium)
-            state.queue.firstOrNull()?.takeIf { state.queueHasCurrent }?.let { TrackRow(it.track, state, {}, {}, false) }
+            state.queue.firstOrNull()?.takeIf { state.queueHasCurrent }?.let {
+                TrackRow(it.track, indicators.currentId == it.track.id, it.track.id in indicators.likedIds,
+                    it.track.id in indicators.offlineIds, {}, {}, false) }
                 ?: Text("Belum ada lagu diputar.", Modifier.padding(horizontal = 24.dp), color = NadaMuted)
         }
         item(key = "next") {

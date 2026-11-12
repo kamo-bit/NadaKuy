@@ -24,6 +24,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import app.nada.player.MusicState
 import app.nada.player.MusicViewModel
 import app.nada.player.lyrics.LyricsDocument
@@ -38,9 +41,12 @@ fun LyricsScreen(state: MusicState, model: MusicViewModel, modifier: Modifier, b
     LaunchedEffect(track) { model.loadLyrics(track) }
     DisposableEffect(model) { onDispose { model.closeLyrics() } }
     val lyrics = model.lyricsState.takeIf { it.trackId == track.id } ?: LyricsState(trackId = track.id, loading = true)
-    val position by produceState(model.lyricsPosition(), track.id) {
-        while (isActive) { value = model.lyricsPosition(); delay(200) }
-    }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val position = key(track.id) { produceState(0L, model, lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (isActive) { value = model.lyricsPosition(); delay(200) }
+        }
+    } }
     val context = LocalContext.current
     // Keyed by track so a pick can never land on the next song after a skip.
     var browsing by rememberSaveable(track.id) { mutableStateOf(false) }
@@ -67,7 +73,7 @@ fun LyricsScreen(state: MusicState, model: MusicViewModel, modifier: Modifier, b
             document == null -> LyricsMessage("Lirik belum ditemukan", "Pencarian otomatis belum menemukan lirik yang cocok. Cari sendiri di LRCLIB, lalu pilih lirik yang sesuai.",
                 Modifier.weight(1f), browse = { browsing = true })
             document.instrumental -> LyricsMessage("Lagu instrumental", "Penyedia lirik menandai rekaman ini tanpa vokal.", Modifier.weight(1f))
-            else -> LyricsBody(document, position, state.canSeek, model::seek, Modifier.weight(1f).fillMaxWidth())
+            else -> PositionedLyrics(document, { position.value }, state.canSeek, model::seek, Modifier.weight(1f).fillMaxWidth())
         }
         if (document != null) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, "https://lrclib.net".toUri())) } }) { Text("Lirik: LRCLIB") }
@@ -75,22 +81,33 @@ fun LyricsScreen(state: MusicState, model: MusicViewModel, modifier: Modifier, b
             if (document.chosen) Text("Dipilih manual", color = NadaMuted, style = MaterialTheme.typography.labelSmall)
             else if (lyrics.cached) Text("Tersimpan di perangkat", color = NadaMuted, style = MaterialTheme.typography.labelSmall)
         }
-        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp)) {
-            LinearProgressIndicator(progress = { if (state.duration > 0) (position.toFloat() / state.duration).coerceIn(0f, 1f) else 0f },
-                modifier = Modifier.fillMaxWidth(), color = NadaGreen, drawStopIndicator = {})
-            Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(timeText(position / 1000), color = NadaMuted, style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.weight(1f))
-                IconButton(onClick = model::previous, enabled = state.canPrevious) { Icon(Icons.Rounded.SkipPrevious, "Lagu sebelumnya") }
-                FilledIconButton(onClick = model::togglePlayback, modifier = Modifier.size(52.dp),
-                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = NadaGreen, contentColor = NadaBackground)) {
-                    if (state.buffering) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp, color = NadaBackground)
-                    else Icon(if (state.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (state.playing) "Jeda" else "Lanjutkan")
-                }
-                IconButton(onClick = model::next, enabled = state.canNext) { Icon(Icons.Rounded.SkipNext, "Lagu berikutnya") }
-                Spacer(Modifier.weight(1f))
-                Text(timeText(state.duration / 1000), color = NadaMuted, style = MaterialTheme.typography.bodyMedium)
+        LyricsPlaybackControls(state, model) { position.value }
+    }
+}
+
+@Composable
+private fun PositionedLyrics(document: LyricsDocument, position: () -> Long, canSeek: Boolean, seek: (Long) -> Unit, modifier: Modifier) {
+    LyricsBody(document, position(), canSeek, seek, modifier)
+}
+
+@Composable
+private fun LyricsPlaybackControls(state: MusicState, model: MusicViewModel, position: () -> Long) {
+    val duration = model.progress.duration
+    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp)) {
+        LinearProgressIndicator(progress = { if (duration > 0) (position().toFloat() / duration).coerceIn(0f, 1f) else 0f },
+            modifier = Modifier.fillMaxWidth(), color = NadaGreen, drawStopIndicator = {})
+        Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(timeText(position() / 1000), color = NadaMuted, style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = model::previous, enabled = state.canPrevious) { Icon(Icons.Rounded.SkipPrevious, "Lagu sebelumnya") }
+            FilledIconButton(onClick = model::togglePlayback, modifier = Modifier.size(52.dp),
+                colors = IconButtonDefaults.filledIconButtonColors(containerColor = NadaGreen, contentColor = NadaBackground)) {
+                if (state.buffering) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp, color = NadaBackground)
+                else Icon(if (state.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (state.playing) "Jeda" else "Lanjutkan")
             }
+            IconButton(onClick = model::next, enabled = state.canNext) { Icon(Icons.Rounded.SkipNext, "Lagu berikutnya") }
+            Spacer(Modifier.weight(1f))
+            Text(timeText(duration / 1000), color = NadaMuted, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }

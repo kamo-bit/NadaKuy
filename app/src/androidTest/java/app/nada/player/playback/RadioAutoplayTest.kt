@@ -174,6 +174,34 @@ class RadioAutoplayTest {
             assertEquals(20, (0 until playback.player.currentMediaItemIndex).count { playback.player.getMediaItemAt(it).mediaMetadata.extras!!.getBoolean(RadioCommands.AUTOMATIC) })
         }
     }
+    @Test fun aLongManualPlaylistRefillsOnlyWhenFourItemsRemainAndUsesItsLastUpcomingSong() {
+        val seeds = mutableListOf<String>()
+        attach({ seed -> seeds += seed.id; (1..6).map { song("added$it", "Artist$it") } })
+        main {
+            settings.setAutoplay(true)
+            playback.player.setMediaItems((0 until 600).map { item(song("manual$it"), "long-queue", false) })
+            playback.player.prepare()
+        }
+        await("long playlist ready") { playback.player.playbackState == Player.STATE_READY }
+        main {
+            assertTrue(seeds.isEmpty())
+            playback.player.seekTo(595, 0)
+        }
+        await("five songs remain") { playback.player.currentMediaItemIndex == 595 && playback.player.playbackState == Player.STATE_READY }
+        main {
+            assertTrue(seeds.isEmpty())
+            playback.player.seekTo(596, 0)
+        }
+        await("four remaining songs trigger refill") { seeds.isNotEmpty() && playback.player.mediaItemCount == 606 }
+        main {
+            assertEquals(listOf("manual599"), seeds)
+            assertEquals("manual596", playback.player.currentMediaItem?.mediaId)
+            assertEquals(600, (0 until playback.player.mediaItemCount).count {
+                !playback.player.getMediaItemAt(it).mediaMetadata.extras!!.getBoolean(RadioCommands.AUTOMATIC)
+            })
+            assertFalse(playback.player.playWhenReady)
+        }
+    }
     @Test fun refillRetainsTheOriginalStationWhenTheQueueReachesAnotherArtist() {
         val requests = mutableListOf<app.nada.player.recommendations.RadioRequest>()
         main {

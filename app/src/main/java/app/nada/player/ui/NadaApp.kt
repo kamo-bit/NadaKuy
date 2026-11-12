@@ -79,6 +79,7 @@ private const val IMPORT_PLAYLIST = "import-playlist"
 @Composable
 fun NadaApp(model: MusicViewModel = viewModel()) {
     val s = model.state
+    val indicators = rememberTrackIndicators(s)
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var collection by rememberSaveable { mutableStateOf<String?>(null) }
     var fullPlayer by rememberSaveable { mutableStateOf(false) }
@@ -202,7 +203,8 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
         ModalBottomSheet(onDismissRequest = { options = null }, containerColor = NadaSurface, properties = NadaSheetProperties,
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-            TrackRow(track, s, { model.play(listOf(track)); options = null }, {}, false)
+            TrackRow(track, indicators.currentId == track.id, track.id in indicators.likedIds, track.id in indicators.offlineIds,
+                { model.play(listOf(track)); options = null }, {}, false)
             HorizontalDivider(Modifier.padding(16.dp), color = Color(0xFF393939))
             SheetAction(if (s.liked.any { it.id == track.id }) "Hapus dari lagu disukai" else "Simpan ke lagu disukai", Icons.Rounded.FavoriteBorder) { model.toggleLike(track); options = null }
             SheetAction(if (track.source == "spotify") "Tambahkan ke antrean Spotify" else "Putar berikutnya", Icons.AutoMirrored.Rounded.QueueMusic) { model.playNext(track); options = null }
@@ -288,19 +290,25 @@ fun NadaApp(model: MusicViewModel = viewModel()) {
 
 @Composable
 private fun HomeScreen(s: MusicState, model: MusicViewModel, modifier: Modifier, options: (Track) -> Unit, genre: (Genre) -> Unit, history: () -> Unit, liked: () -> Unit, info: () -> Unit, spotify: () -> Unit) {
-    HomeFeed(s, modifier, model::refresh, { tracks, index -> model.play(tracks, index) }, model::retryRecommendations, model::loadMoreRecommendations,
+    HomeFeed(rememberHomeFeedState(s), modifier, model::refresh, { tracks, index -> model.play(tracks, index) }, model::retryRecommendations, model::loadMoreRecommendations,
         options, genre, history, liked, info, spotify)
 }
 
 @Composable
-internal fun HomeFeed(s: MusicState, modifier: Modifier = Modifier, refresh: () -> Unit, play: (List<Track>, Int) -> Unit,
+internal fun HomeFeed(s: HomeFeedState, modifier: Modifier = Modifier, refresh: () -> Unit, play: (List<Track>, Int) -> Unit,
     retryRecommendations: () -> Unit, loadMoreRecommendations: () -> Unit, options: (Track) -> Unit = {}, genre: (Genre) -> Unit = {},
     history: () -> Unit = {}, liked: () -> Unit = {}, info: () -> Unit = {}, spotify: () -> Unit = {}) {
+    val sourceHistory = remember(s.history, s.source) { s.history.filter { it.source == s.source } }
+    val recent = remember(sourceHistory) { sourceHistory.take(10) }
+    val quick = remember(sourceHistory, s.home) { (sourceHistory + s.home).distinctBy(Track::id).take(8) }
+    val quickRows = remember(quick) { quick.chunked(2) }
+    val featured = remember(s.home) { s.home.take(16) }
+    val suggestions = remember(s.home) { s.home.drop(16).take(8) }
     PullToRefreshBox(isRefreshing = s.homeRefreshing, onRefresh = refresh, modifier = modifier) {
         LazyColumn(Modifier.fillMaxSize().testTag("home-feed").semantics {
             customActions = listOf(CustomAccessibilityAction("Segarkan rekomendasi") { refresh(); true })
         }, contentPadding = PaddingValues(bottom = 24.dp)) {
-            item {
+            item(key = "home-filters", contentType = "filters") {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = info, modifier = Modifier.semantics { contentDescription = "Tentang NadaKuy" }) { BrandMark(Modifier.size(34.dp)) }
                     Row(Modifier.horizontalScroll(rememberScrollState()).padding(start = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -310,7 +318,7 @@ internal fun HomeFeed(s: MusicState, modifier: Modifier = Modifier, refresh: () 
                     }
                 }
             }
-            if (s.source == "spotify" && (!s.spotifyAuthorized || !s.spotifyConnected)) item {
+            if (s.source == "spotify" && (!s.spotifyAuthorized || !s.spotifyConnected)) item(key = "spotify-connect", contentType = "status") {
                 Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(if (s.spotifyAuthorized) "Aktifkan pemutar Spotify" else "Musikmu di Spotify", style = MaterialTheme.typography.headlineMedium)
                     Text(if (s.spotifyAuthorized) "Hubungkan pemutar untuk mendengarkan lagu dari NadaKuy." else "Hubungkan akun Premium untuk mencari dan mendengarkan musik dari katalog Spotify.", color = NadaMuted)
@@ -318,13 +326,12 @@ internal fun HomeFeed(s: MusicState, modifier: Modifier = Modifier, refresh: () 
                 }
             }
             personalizedHome(s, play, retryRecommendations, loadMoreRecommendations, options)
-            s.homeError?.let { item { ErrorBlock(it, refresh, s.home.isNotEmpty()) } }
-            if (s.home.isEmpty() && s.loading) item { LoadingBlock("Menemukan musik untukmu…") }
+            s.homeError?.let { item(key = "home-error", contentType = "status") { ErrorBlock(it, refresh, s.home.isNotEmpty()) } }
+            if (s.home.isEmpty() && s.loading) item(key = "home-loading", contentType = "status") { LoadingBlock("Menemukan musik untukmu…") }
             if (s.home.isNotEmpty()) {
-                item {
-                    val quick = (s.history.filter { it.source == s.source } + s.home).distinctBy(Track::id).take(8)
+                item(key = "quick-tracks", contentType = "quick-tracks") {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        quick.chunked(2).forEach { pair -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        quickRows.forEach { pair -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             pair.forEach { track -> Row(Modifier.weight(1f).heightIn(min = 58.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xFF2A2A2A)).clickable { play(quick, quick.indexOf(track)) }, verticalAlignment = Alignment.CenterVertically) {
                                 Cover(track, Modifier.size(58.dp)); Text(track.title, Modifier.weight(1f).padding(8.dp), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
                             } }
@@ -332,19 +339,21 @@ internal fun HomeFeed(s: MusicState, modifier: Modifier = Modifier, refresh: () 
                         } }
                     }
                 }
-                item { SectionTitle(when (s.source) { "spotify" -> "Jelajahi Spotify"; "youtube" -> "Musik Indonesia"; else -> "Sedang ramai" }) }
-                item { LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    items(s.home.take(16), key = Track::id) { track -> TrackCard(track) { play(s.home, s.home.indexOf(track)) } }
+                item(key = "home-heading", contentType = "heading") { SectionTitle(when (s.source) { "spotify" -> "Jelajahi Spotify"; "youtube" -> "Musik Indonesia"; else -> "Sedang ramai" }) }
+                item(key = "home-tracks", contentType = "track-carousel") { LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    items(featured, key = Track::id, contentType = { "track" }) { track -> TrackCard(track) { play(s.home, s.home.indexOf(track)) } }
                 } }
-                if (s.history.any { it.source == s.source }) {
-                    item { SectionTitle("Baru kamu putar", history) }
-                    item { LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) { items(s.history.filter { it.source == s.source }.take(10), key = Track::id) { track -> TrackCard(track) { play(s.history, s.history.indexOf(track)) } } } }
+                if (recent.isNotEmpty()) {
+                    item(key = "history-heading", contentType = "heading") { SectionTitle("Baru kamu putar", history) }
+                    item(key = "history-tracks", contentType = "track-carousel") { LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) { items(recent, key = Track::id, contentType = { "track" }) { track -> TrackCard(track) { play(s.history, s.history.indexOf(track)) } } } }
                 }
-                if (s.home.size > 16) item { SectionTitle("Temukan favorit berikutnya") }
-                items(s.home.drop(16).take(8), key = Track::id) { track -> TrackRow(track, s, { play(s.home, s.home.indexOf(track)) }, { options(track) }) }
+                if (s.home.size > 16) item(key = "suggestions-heading", contentType = "heading") { SectionTitle("Temukan favorit berikutnya") }
+                items(suggestions, key = { "suggestion:${it.id}" }, contentType = { "track-row" }) { track ->
+                    TrackRow(track, s.indicators.currentId == track.id, track.id in s.indicators.likedIds, track.id in s.indicators.offlineIds,
+                        { play(s.home, s.home.indexOf(track)) }, { options(track) }) }
             }
-            item { SectionTitle("Sesuai suasana hatimu") }; item { GenreGrid(genres.take(4), genre) }
-            item { Text("Musik dari ${sourceName(s)}", Modifier.fillMaxWidth().padding(top = 32.dp), color = NadaMuted, textAlign = TextAlign.Center, style = MaterialTheme.typography.labelSmall) }
+            item(key = "genres-heading", contentType = "heading") { SectionTitle("Sesuai suasana hatimu") }; item(key = "genres", contentType = "genres") { GenreGrid(genres.take(4), genre) }
+            item(key = "home-source", contentType = "footer") { Text("Musik dari ${s.sourceLabel}", Modifier.fillMaxWidth().padding(top = 32.dp), color = NadaMuted, textAlign = TextAlign.Center, style = MaterialTheme.typography.labelSmall) }
         }
     }
 }
@@ -352,6 +361,7 @@ internal fun HomeFeed(s: MusicState, modifier: Modifier = Modifier, refresh: () 
 @Composable
 private fun SearchScreen(s: MusicState, model: MusicViewModel, modifier: Modifier, options: (Track) -> Unit, genre: (Genre) -> Unit) {
     val focus = LocalFocusManager.current
+    val indicators = rememberTrackIndicators(s)
     LazyColumn(modifier, contentPadding = PaddingValues(bottom = 24.dp)) {
         item { Text("Cari", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(start = 20.dp, top = 24.dp, bottom = 20.dp)) }
         if (s.source == "youtube") item {
@@ -389,7 +399,9 @@ private fun SearchScreen(s: MusicState, model: MusicViewModel, modifier: Modifie
                     if (s.source == "youtube" && app.nada.player.youtube.YouTubeSearchRanking.originalPreferred(s.query)) Text("Rekaman resmi dan versi studio diprioritaskan", Modifier.padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
                         color = NadaMuted, style = MaterialTheme.typography.bodyMedium)
                 }
-                items(s.results, key = Track::id) { track -> TrackRow(track, s, { focus.clearFocus(); model.rememberSearch(); model.play(s.results, s.results.indexOf(track)) }, { options(track) }) }
+                items(s.results, key = Track::id, contentType = { "track-row" }) { track ->
+                    TrackRow(track, indicators.currentId == track.id, track.id in indicators.likedIds, track.id in indicators.offlineIds,
+                        { focus.clearFocus(); model.rememberSearch(); model.play(s.results, s.results.indexOf(track)) }, { options(track) }) }
             }
         }
     }
@@ -401,8 +413,9 @@ private fun CollectionScreen(title: String, tracks: List<Track>, s: MusicState, 
     rename: (() -> Unit)?, download: () -> Unit, downloads: () -> Unit) {
     var query by rememberSaveable(title) { mutableStateOf("") }
     var byName by rememberSaveable(title) { mutableStateOf(false) }
-    val matching = tracks.filter { it.title.contains(query, true) || it.artist.contains(query, true) }
-    val visible = if (byName) matching.sortedBy { it.title.lowercase() } else matching
+    val matching = remember(tracks, query) { tracks.filter { it.title.contains(query, true) || it.artist.contains(query, true) } }
+    val visible = remember(matching, byName) { if (byName) matching.sortedBy { it.title.lowercase() } else matching }
+    val indicators = rememberTrackIndicators(s)
     LazyColumn(modifier, contentPadding = PaddingValues(bottom = 24.dp)) {
         item { Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = back) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Kembali") }; Spacer(Modifier.weight(1f))
@@ -450,7 +463,9 @@ private fun CollectionScreen(title: String, tracks: List<Track>, s: MusicState, 
             error != null -> item { ErrorBlock(error, retry) }
             tracks.isEmpty() -> item { EmptyBlock(Icons.Rounded.MusicNote, "Belum ada lagu", "Temukan lagu di Beranda atau Cari, lalu simpan lewat menu tiga titik.") }
             visible.isEmpty() -> item { EmptyBlock(Icons.Rounded.Search, "Tidak ada lagu yang cocok", "Coba judul atau artis lain di koleksi ini.") }
-            else -> items(visible, key = Track::id) { track -> TrackRow(track, s, { model.play(visible, visible.indexOf(track)) }, { options(track) }) }
+            else -> items(visible, key = Track::id, contentType = { "track-row" }) { track ->
+                TrackRow(track, indicators.currentId == track.id, track.id in indicators.likedIds, track.id in indicators.offlineIds,
+                    { model.play(visible, visible.indexOf(track)) }, { options(track) }) }
         }
     }
 }
@@ -467,7 +482,7 @@ private fun MiniPlayer(track: Track, s: MusicState, model: MusicViewModel, artwo
             IconButton(onClick = { model.toggleLike(track) }) { Icon(if (s.liked.any { it.id == track.id }) Icons.Rounded.CheckCircle else Icons.Rounded.AddCircleOutline, if (s.liked.any { it.id == track.id }) "Batal sukai lagu" else "Sukai lagu", tint = if (s.liked.any { it.id == track.id }) NadaGreen else Color.White) }
             IconButton(onClick = model::togglePlayback, enabled = s.source != "spotify" || s.spotifyConnected) { if (s.buffering) CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp) else Icon(if (s.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (s.playing) "Jeda" else "Lanjutkan", Modifier.size(30.dp)) }
         }
-        LinearProgressIndicator(progress = { if (s.duration > 0) (s.position.toFloat() / s.duration).coerceIn(0f, 1f) else 0f },
+        LinearProgressIndicator(progress = { model.progress.let { if (it.duration > 0) (it.position.toFloat() / it.duration).coerceIn(0f, 1f) else 0f } },
             modifier = Modifier.fillMaxWidth().height(2.dp).padding(horizontal = 8.dp), color = Color.White, trackColor = Color(0xFF60706A), drawStopIndicator = {})
     }
 }
@@ -475,7 +490,6 @@ private fun MiniPlayer(track: Track, s: MusicState, model: MusicViewModel, artwo
 @Composable
 private fun FullPlayer(s: MusicState, model: MusicViewModel, background: Color, close: () -> Unit, queue: () -> Unit, options: () -> Unit, timer: () -> Unit, lyrics: () -> Unit, download: () -> Unit) {
     val track = s.current ?: return
-    var seekPreview by remember(track.id) { mutableStateOf<Float?>(null) }
     val liked = s.liked.any { it.id == track.id }
     Column(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(background, Color(0xFF131D19), Color(0xFF101411))))
         .statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp)) {
@@ -493,12 +507,7 @@ private fun FullPlayer(s: MusicState, model: MusicViewModel, background: Color, 
                 if (liked) "Batal sukai lagu" else "Sukai lagu", tint = if (liked) NadaGreen else Color.White, modifier = Modifier.size(28.dp)) }
         }
         Spacer(Modifier.height(16.dp))
-        Slider(value = seekPreview ?: s.position.toFloat().coerceAtMost(s.duration.toFloat().coerceAtLeast(1f)), onValueChange = { seekPreview = it }, enabled = s.duration > 0 && s.canSeek && (s.source != "spotify" || s.spotifyConnected),
-            onValueChangeFinished = { seekPreview?.let { model.seek(it.toLong()) }; seekPreview = null }, valueRange = 0f..s.duration.toFloat().coerceAtLeast(1f),
-            modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Posisi pemutaran" },
-            thumb = { Box(Modifier.size(10.dp).background(Color.White, CircleShape)) },
-            track = { sliderState -> SliderDefaults.Track(sliderState, Modifier.height(3.dp), thumbTrackGapSize = 0.dp, trackInsideCornerSize = 1.5.dp, drawStopIndicator = {}, colors = SliderDefaults.colors(activeTrackColor = Color.White, inactiveTrackColor = Color.White.copy(alpha = .25f))) })
-        Row(Modifier.fillMaxWidth()) { Text(timeText((seekPreview?.toLong() ?: s.position) / 1000), color = NadaMuted, style = MaterialTheme.typography.bodyMedium); Spacer(Modifier.weight(1f)); Text(timeText(s.duration / 1000), color = NadaMuted, style = MaterialTheme.typography.bodyMedium) }
+        PlaybackTimeline(track.id, { model.progress }, s.canSeek && (s.source != "spotify" || s.spotifyConnected), model::seek)
         Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = model::toggleShuffle, enabled = s.canShuffle && (s.source != "spotify" || s.spotifyConnected)) { Icon(Icons.Rounded.Shuffle, if (s.shuffle) "Matikan acak" else "Aktifkan acak", tint = if (!s.canShuffle) NadaMuted else if (s.shuffle) NadaGreen else Color.White) }
             IconButton(onClick = model::previous, enabled = s.canPrevious && (s.source != "spotify" || s.spotifyConnected), modifier = Modifier.size(52.dp)) { Icon(Icons.Rounded.SkipPrevious, "Lagu sebelumnya", Modifier.size(38.dp), tint = if (s.canPrevious) Color.White else NadaMuted) }
@@ -519,10 +528,10 @@ private fun FullPlayer(s: MusicState, model: MusicViewModel, background: Color, 
                         if (saved?.ready == true) "Lagu tersedia offline" else "Unduh lagu", tint = if (saved?.ready == true) NadaGreen else Color.White)
                 }
             }
-            if (s.source != "spotify") IconButton(onClick = timer) { Icon(Icons.Rounded.Timer, "Timer tidur", tint = if (sleepTimerLabel(s) != null) NadaGreen else Color.White) }
+            if (s.source != "spotify") IconButton(onClick = timer) { Icon(Icons.Rounded.Timer, "Timer tidur", tint = if (s.sleepEndOfTrack || s.sleepDeadline > 0) NadaGreen else Color.White) }
             IconButton(onClick = queue) { Icon(Icons.AutoMirrored.Rounded.QueueMusic, "Buka antrean") }
         }
-        sleepTimerLabel(s)?.let { Text("Timer tidur · $it", color = NadaGreen, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 12.dp)) }
+        SleepTimerStatus(s, { model.progress }, Modifier.padding(bottom = 12.dp), "Timer tidur · ", color = NadaGreen)
         Text("Diputar dari ${when (track.source) { "spotify" -> "Spotify"; "youtube" -> track.genre; else -> "Audius" }}", color = NadaMuted, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 24.dp))
         if (track.source == "youtube") {
             val context = LocalContext.current
@@ -538,15 +547,16 @@ private fun FullPlayer(s: MusicState, model: MusicViewModel, background: Color, 
 }
 
 @Composable
-internal fun TrackRow(track: Track, state: MusicState, play: () -> Unit, options: () -> Unit, showOptions: Boolean = true) {
+internal fun TrackRow(track: Track, isCurrent: Boolean, isLiked: Boolean, isOffline: Boolean,
+    play: () -> Unit, options: () -> Unit, showOptions: Boolean = true) {
     Row(Modifier.fillMaxWidth().clickable(onClick = play).padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp).heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
         Cover(track, Modifier.size(52.dp).clip(RoundedCornerShape(4.dp)))
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-            Text(track.title, color = if (state.current?.id == track.id) NadaGreen else Color.White, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(track.title, color = if (isCurrent) NadaGreen else Color.White, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(track.artist, color = NadaMuted, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        if (state.liked.any { it.id == track.id }) Icon(Icons.Rounded.Favorite, null, tint = NadaGreen, modifier = Modifier.size(16.dp))
-        if (state.offline.tracks.any { it.id == track.id && it.ready }) Icon(Icons.Rounded.DownloadDone, "Tersedia offline", tint = NadaGreen, modifier = Modifier.padding(start = 6.dp).size(16.dp))
+        if (isLiked) Icon(Icons.Rounded.Favorite, null, tint = NadaGreen, modifier = Modifier.size(16.dp))
+        if (isOffline) Icon(Icons.Rounded.DownloadDone, "Tersedia offline", tint = NadaGreen, modifier = Modifier.padding(start = 6.dp).size(16.dp))
         if (showOptions) IconButton(onClick = options) { Icon(Icons.Rounded.MoreVert, "Opsi ${track.title}", tint = NadaMuted) }
     }
 }

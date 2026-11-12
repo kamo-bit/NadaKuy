@@ -14,6 +14,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
+import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -43,9 +44,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.catch
@@ -67,9 +65,10 @@ import app.nada.player.youtube.YouTubeCatalog
 import app.nada.player.youtube.YouTubeLinks
 import app.nada.player.youtube.YouTubePlaylistPreview
 import app.nada.player.recommendations.ListeningHistory
-import app.nada.player.recommendations.ListeningRecommendations
 import app.nada.player.recommendations.QualifiedListening
 import app.nada.player.recommendations.RecommendationPreferences
+import app.nada.player.recommendations.HomeRecommendations
+import app.nada.player.recommendations.HomeRecommendationInput
 import app.nada.player.playback.RadioCommands
 
 data class MusicState(
@@ -82,9 +81,9 @@ data class MusicState(
     val query: String = "", val results: List<Track> = emptyList(), val searching: Boolean = false, val searchError: String? = null,
     val liked: List<Track> = emptyList(), val history: List<Track> = emptyList(), val playlists: List<LocalPlaylist> = emptyList(),
     val current: Track? = null, val queue: List<QueuedTrack> = emptyList(), val playing: Boolean = false,
-    val buffering: Boolean = false, val position: Long = 0, val duration: Long = 0,
+    val buffering: Boolean = false,
     val shuffle: Boolean = false, val repeat: Int = Player.REPEAT_MODE_OFF,
-    val sleepDeadline: Long = 0, val sleepRemainingSeconds: Long = 0, val sleepEndOfTrack: Boolean = false, val recentSearches: List<String> = emptyList(),
+    val sleepDeadline: Long = 0, val sleepEndOfTrack: Boolean = false, val recentSearches: List<String> = emptyList(),
     val message: String? = null, val genreTracks: List<Track> = emptyList(), val genreLoading: Boolean = false, val genreError: String? = null,
     val source: String = "audius", val spotifyClientId: String = "", val spotifyAuthorized: Boolean = false,
     val spotifyConnected: Boolean = false, val spotifyBusy: Boolean = false, val spotifyError: String? = null,
@@ -97,6 +96,8 @@ data class MusicState(
     val batchDownloading: Boolean = false,
     val canSeek: Boolean = true, val canNext: Boolean = true, val canPrevious: Boolean = true, val canShuffle: Boolean = true, val canRepeat: Boolean = true,
 )
+
+data class PlaybackProgress(val position: Long = 0, val duration: Long = 0, val sleepRemainingSeconds: Long = 0)
 
 data class CollectionTransferState(val busy: String? = null, val message: String? = null,
     val error: String? = null, val pending: CollectionBackup? = null)
@@ -153,16 +154,21 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     var state by mutableStateOf(MusicState(home = repository.cachedHome, liked = repository.liked, history = repository.history, playlists = repository.playlists, recentSearches = repository.searchHistory,
         source = initialSource, youtubeVideos = connectionPrefs.getBoolean("youtube_videos", false), spotifyClientId = spotifyAuth.clientId, spotifyAuthorized = spotifyAuth.authorized))
         private set
+    var progress by mutableStateOf(PlaybackProgress())
+        private set
     private var controller: MediaController? = null
+    private var queueCurrentIndex = C.INDEX_UNSET
+    private var progressJob: Job? = null
     private var searchJob: Job? = null
     private var homeJob: Job? = null
     private val listeningHistory = ListeningHistory.get(application)
     private val spotifyListening = QualifiedListening()
-    private var recommendationsJob: Job? = null
-    private var recommendationsKey: String? = null
-    private var recommendationPools: List<List<Track>> = emptyList()
-    private var recommendationSeeds: List<ListeningRecommendations.Seed> = emptyList()
-    private var recommendationLimit = 6
+    private val homeRecommendations = HomeRecommendations(viewModelScope, loadPool = { input, seed, force, cached ->
+        if (input.source == "spotify") {
+            val artist = app.nada.player.recommendations.ListeningRecommendations.artistName(seed.artist)
+            if (input.spotifyAuthorized) spotifyApi.search("artist:\"${artist.replace("\"", "")}\"") else emptyList()
+        } else recommendationCatalog.pool(seed, force, cached)
+    })
     private var refreshJob: Job? = null
     private var genreJob: Job? = null
     private var authJob: Job? = null
@@ -176,17 +182,30 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 repository.rememberPlayed(playback.track); syncLibrary()
                 loadSpotifyLike(playback.track)
             }
-            state = state.copy(current = playback.track, playing = playback.playing, position = playback.position, duration = playback.duration,
+            progress = PlaybackProgress(playback.position, playback.duration)
+            state = state.copy(current = playback.track, playing = playback.playing,
                 shuffle = playback.shuffle, repeat = playback.repeat, buffering = false, canSeek = playback.canSeek, canNext = playback.canNext,
                 canPrevious = playback.canPrevious, canShuffle = playback.canShuffle, canRepeat = playback.canRepeat)
+            spotifyListening.sample(playback.track, playback.playing && state.spotifyConnected,
+                SystemClock.elapsedRealtime())?.let { listeningHistory.record(it) }
+            synchronizeProgressPolling()
         }
     }, status = { connected, error ->
         state = state.copy(spotifyConnected = connected, spotifyError = error, message = error ?: state.message)
+        if (!connected) spotifyListening.sample(state.current.takeIf { state.source == "spotify" }, false,
+            SystemClock.elapsedRealtime())?.let { listeningHistory.record(it) }
+        synchronizeProgressPolling()
         if (connected) { pendingSpotifyPrompt = false; state.current?.takeIf { it.source == "spotify" }?.let(::loadSpotifyLike) }
     })
-    private val future = MediaController.Builder(application, SessionToken(application, ComponentName(application, PlaybackService::class.java))).buildAsync()
+    private val future = MediaController.Builder(application, SessionToken(application, ComponentName(application, PlaybackService::class.java)))
+        .setListener(object : MediaController.Listener {
+            override fun onExtrasChanged(controller: MediaController, extras: Bundle) { updatePlayer() }
+        }).buildAsync()
     private val listener = object : Player.Listener {
-        override fun onEvents(player: Player, events: Player.Events) { updatePlayer() }
+        override fun onEvents(player: Player, events: Player.Events) {
+            updatePlayer(refreshQueue = events.containsAny(Player.EVENT_TIMELINE_CHANGED, Player.EVENT_MEDIA_ITEM_TRANSITION,
+                Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED, Player.EVENT_REPEAT_MODE_CHANGED, Player.EVENT_MEDIA_METADATA_CHANGED))
+        }
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             mediaItem?.let { repository.rememberPlayed(it.toTrack()); syncLibrary() }
         }
@@ -198,6 +217,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
+        viewModelScope.launch { homeRecommendations.state.collect { result ->
+            state = state.copy(recommendations = result.recommendations, frequent = result.frequent,
+                recommendationArtists = result.artists, recommendationsLoading = result.loading,
+                recommendationsError = result.error, recommendationsHaveMore = result.hasMore)
+        } }
         viewModelScope.launch { playbackSettings.normalization.collect { state = state.copy(normalizeVolume = it) } }
         viewModelScope.launch { recommendationSettings.state.collect {
             state = state.copy(recommendationPreferences = it)
@@ -214,17 +238,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 controller = player
                 player.addListener(listener)
                 if (player.currentMediaItem?.toTrack()?.source?.let { it != state.source } == true) { player.pause(); player.clearMediaItems() }
-                updatePlayer()
+                updatePlayer(refreshQueue = true)
             }.onFailure { state = state.copy(message = "Pemutar belum siap. Tutup lalu buka kembali aplikasi.") }
         }, ContextCompat.getMainExecutor(application))
         if (state.source != "audius") state = state.copy(home = emptyList())
         loadHome()
-        viewModelScope.launch { while (isActive) {
-            updatePlayer()
-            spotifyListening.sample(state.current.takeIf { state.source == "spotify" },
-                state.source == "spotify" && state.spotifyConnected && state.playing, SystemClock.elapsedRealtime())?.let { listeningHistory.record(it) }
-            delay(750)
-        } }
     }
 
     fun refresh() {
@@ -233,7 +251,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         loadHome(force = true)
         refreshJob = viewModelScope.launch {
             state = state.copy(homeRefreshing = true)
-            try { listOfNotNull(homeJob, recommendationsJob).forEach { it.join() } }
+            try { homeJob?.join(); homeRecommendations.awaitIdle() }
             finally { state = state.copy(homeRefreshing = false) }
         }
     }
@@ -264,62 +282,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     fun retryRecommendations() = refreshRecommendations(force = true)
 
-    fun loadMoreRecommendations() {
-        if (!state.recommendationsHaveMore) return
-        recommendationLimit += 6
-        publishRecommendations()
-    }
-
-    private fun publishRecommendations() {
-        val candidates = ListeningRecommendations.select(recommendationPools, recommendationSeeds,
-            listeningHistory.state.value.map { it.track } + state.history, state.source, limit = 40, preferences = state.recommendationPreferences, stats = listeningHistory.state.value)
-        state = state.copy(recommendations = candidates.take(recommendationLimit), recommendationsHaveMore = candidates.size > recommendationLimit)
-    }
+    fun loadMoreRecommendations() = homeRecommendations.loadMore()
 
     private fun refreshRecommendations(force: Boolean = false) {
-        val source = state.source
-        val videos = state.youtubeVideos
-        val stats = listeningHistory.state.value
-        val seeds = ListeningRecommendations.seeds(stats, state.history, source, state.recommendationPreferences)
-        state = state.copy(frequent = ListeningRecommendations.frequent(stats, source))
-        val key = "$source:$videos:${state.spotifyAuthorized}:${seeds.joinToString("|") { it.track.id }}"
-        if (!force && key == recommendationsKey) {
-            publishRecommendations()
-            return
-        }
-        if (key != recommendationsKey) {
-            recommendationPools = seeds.map { emptyList() }
-            recommendationSeeds = seeds
-            recommendationLimit = 6
-            state = state.copy(recommendations = emptyList(), recommendationsHaveMore = false)
-        }
-        recommendationsKey = key
-        recommendationsJob?.cancel()
-        state = state.copy(recommendationArtists = seeds.map { it.artist }, recommendationsError = null,
-            recommendationsLoading = seeds.isNotEmpty())
-        if (seeds.isEmpty()) return
-        recommendationsJob = viewModelScope.launch {
-            // Related pools from up to three history recordings; publish each cached pool immediately.
-            val failures = coroutineScope { seeds.mapIndexed { index, seed -> async {
-                fun accept(tracks: List<Track>) {
-                    recommendationPools = recommendationPools.mapIndexed { i, old -> if (i == index) tracks else old }
-                    publishRecommendations()
-                }
-                try {
-                    val tracks = when (source) {
-                        "spotify" -> if (state.spotifyAuthorized) spotifyApi.search("artist:\"${seed.artist.replace("\"", "")}\"") else emptyList()
-                        else -> recommendationCatalog.pool(seed.track, force, ::accept)
-                    }
-                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                    accept(tracks)
-                    false
-                } catch (error: CancellationException) { throw error }
-                catch (error: Exception) { true }
-            } }.awaitAll().count { it } }
-            kotlinx.coroutines.currentCoroutineContext().ensureActive()
-            state = state.copy(recommendationsLoading = false,
-                recommendationsError = if (failures > 0) "Sebagian rekomendasi belum bisa dimuat. Periksa internet, lalu coba lagi." else null)
-        }
+        homeRecommendations.refresh(HomeRecommendationInput(
+            source = state.source, videos = state.youtubeVideos, spotifyAuthorized = state.spotifyAuthorized,
+            stats = listeningHistory.state.value, history = state.history, preferences = state.recommendationPreferences), force)
     }
 
     fun search(query: String) {
@@ -455,7 +423,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
-    fun lyricsPosition(): Long = if (state.source == "spotify") state.position else controller?.currentPosition?.coerceAtLeast(0) ?: state.position
+    fun lyricsPosition(): Long = if (state.source == "spotify") progress.position else controller?.currentPosition?.coerceAtLeast(0) ?: progress.position
     fun download(track: Track) {
         try {
             offlineLibrary.add(track)
@@ -725,19 +693,43 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         spotifyLikedTracks = spotifyLikedTracks.filterNot { it.id == track.id }.let { if (added) listOf(track) + it else it }
         syncLibrary()
     }
-    private fun updatePlayer() {
+    private fun updatePlayer(refreshQueue: Boolean = false) {
         if (state.source == "spotify") { spotifyRemote.tick(); return }
         controller?.let { player ->
+            val queueChanged = refreshQueue || queueCurrentIndex != player.currentMediaItemIndex
+            val queue = if (queueChanged) player.upcomingQueue().also { queueCurrentIndex = player.currentMediaItemIndex } else state.queue
             state = state.copy(current = player.currentMediaItem?.toTrack(), playing = player.isPlaying,
-                buffering = player.playbackState == Player.STATE_BUFFERING, position = player.currentPosition.coerceAtLeast(0),
-                duration = player.duration.takeIf { it > 0 } ?: ((player.currentMediaItem?.mediaMetadata?.extras?.getInt("duration") ?: 0) * 1000L),
+                buffering = player.playbackState == Player.STATE_BUFFERING,
                 shuffle = player.shuffleModeEnabled, repeat = player.repeatMode,
                 canSeek = true, canNext = true, canPrevious = true, canShuffle = true, canRepeat = true,
                 sleepDeadline = player.sessionExtras.getLong(SleepCommands.DEADLINE), sleepEndOfTrack = player.sessionExtras.getBoolean(SleepCommands.END_OF_TRACK),
                 radioTitle = player.sessionExtras.getString(RadioCommands.TITLE), radioLoading = player.sessionExtras.getBoolean(RadioCommands.LOADING),
                 radioError = player.sessionExtras.getString(RadioCommands.ERROR),
-                sleepRemainingSeconds = ((player.sessionExtras.getLong(SleepCommands.DEADLINE) - SystemClock.elapsedRealtime()).coerceAtLeast(0) + 999) / 1000,
-                queue = player.upcomingQueue(), queueHasCurrent = true, queueSaveError = player.sessionExtras.getString(QueueCommands.SAVE_ERROR))
+                queue = queue, queueHasCurrent = true, queueSaveError = player.sessionExtras.getString(QueueCommands.SAVE_ERROR))
+            updateProgress()
+            synchronizeProgressPolling()
+        }
+    }
+
+    private fun updateProgress() {
+        if (state.source == "spotify") { spotifyRemote.tick(); return }
+        controller?.let { player ->
+            progress = PlaybackProgress(position = player.currentPosition.coerceAtLeast(0),
+                duration = player.duration.takeIf { it > 0 } ?: ((state.current?.duration ?: 0) * 1000L),
+                sleepRemainingSeconds = ((state.sleepDeadline - SystemClock.elapsedRealtime()).coerceAtLeast(0) + 999) / 1000)
+        }
+    }
+
+    private fun synchronizeProgressPolling() {
+        val active = foregroundActivity?.get() != null &&
+            ((state.playing && (state.source != "spotify" || state.spotifyConnected)) || state.sleepDeadline > SystemClock.elapsedRealtime())
+        if (!active) { progressJob?.cancel(); progressJob = null; return }
+        if (progressJob?.isActive == true) return
+        progressJob = viewModelScope.launch {
+            while (isActive) {
+                delay(750)
+                updateProgress()
+            }
         }
     }
 
@@ -756,7 +748,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         connectionPrefs.edit().putString("source", source).apply()
         state = state.copy(source = source, home = emptyList(), results = emptyList(), query = "", current = null, queue = emptyList(), playing = false, spotifyConnected = spotifyRemote.connected,
             loading = false, searching = false, genreLoading = false, homeError = null, searchError = null, genreTracks = emptyList(), genreError = null,
-            sleepDeadline = 0, sleepEndOfTrack = false, sleepRemainingSeconds = 0, position = 0, duration = 0, queueError = null)
+            sleepDeadline = 0, sleepEndOfTrack = false, queueError = null)
+        progress = PlaybackProgress()
+        queueCurrentIndex = C.INDEX_UNSET
+        spotifyListening.sample(null, false, SystemClock.elapsedRealtime())?.let { listeningHistory.record(it) }
+        synchronizeProgressPolling()
         refreshRecommendations(); loadHome()
         if (source == "spotify" && state.spotifyAuthorized) foregroundActivity?.get()?.let { spotifyRemote.connect(it, spotifyAuth.clientId, prompt = pendingSpotifyPrompt) }
     }
@@ -781,6 +777,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             if (app.nada.player.spotify.SpotifyConfig.validClientId(clientId.trim()) && spotifyAuth.clientId != clientId.trim()) {
                 authJob?.cancel(); spotifyRemote.disconnect()
                 state = state.copy(spotifyConnected = false)
+                spotifyListening.sample(null, false, SystemClock.elapsedRealtime())?.let { listeningHistory.record(it) }
+                synchronizeProgressPolling()
             }
             spotifyAuth.configure(clientId); state = state.copy(spotifyClientId = spotifyAuth.clientId, spotifyAuthorized = spotifyAuth.authorized, spotifyError = null)
         }
@@ -803,17 +801,30 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             finally { state = state.copy(spotifyBusy = false) }
         }
     }
-    fun resumeSpotify(activity: Activity) {
+    fun onForeground(activity: Activity) {
         foregroundActivity = java.lang.ref.WeakReference(activity)
         if (state.source == "spotify" && state.spotifyAuthorized && !state.spotifyBusy) spotifyRemote.connect(activity, spotifyAuth.clientId, prompt = pendingSpotifyPrompt)
+        updatePlayer()
+        synchronizeProgressPolling()
     }
-    fun suspendSpotify() { foregroundActivity = null; spotifyRemote.disconnect(); state = state.copy(spotifyConnected = false) }
+    fun onBackground() {
+        foregroundActivity = null
+        synchronizeProgressPolling()
+        spotifyListening.sample(state.current.takeIf { state.source == "spotify" }, false,
+            SystemClock.elapsedRealtime())?.let { listeningHistory.record(it) }
+        spotifyRemote.disconnect()
+        state = state.copy(spotifyConnected = false)
+    }
     fun disconnectSpotify() {
         authJob?.cancel(); spotifyAuth.disconnect(); spotifyRemote.disconnect()
-        spotifyLikedTracks = emptyList(); syncLibrary()
+        spotifyLikedTracks = emptyList()
         homeJob?.cancel(); searchJob?.cancel(); queueJob?.cancel()
         state = state.copy(spotifyAuthorized = false, spotifyConnected = false, spotifyBusy = false, spotifyError = null,
             home = emptyList(), results = emptyList(), current = null, playing = false, queue = emptyList(), loading = false)
+        progress = PlaybackProgress()
+        synchronizeProgressPolling()
+        spotifyListening.sample(null, false, SystemClock.elapsedRealtime())?.let { listeningHistory.record(it) }
+        syncLibrary()
     }
     fun cancelSpotifyConnection() { authJob?.cancel(); spotifyAuth.cancel(); state = state.copy(spotifyBusy = false) }
     fun refreshSpotifyQueue() {

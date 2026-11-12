@@ -56,19 +56,27 @@ fun Player.playQueueItem(mediaIndex: Int) {
 
 /** Current item and upcoming playback order, with each queue entry appearing once. */
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
-fun Player.upcomingQueue(): List<QueuedTrack> {
-    if (currentTimeline.isEmpty) return emptyList()
+fun Player.upcomingQueue(): List<QueuedTrack> = upcomingQueueIndexes().map { index ->
+    getMediaItemAt(index).let { item -> QueuedTrack(index, item.toTrack(),
+        item.mediaMetadata.extras?.getBoolean(RadioCommands.AUTOMATIC) == true,
+        item.mediaMetadata.extras?.getString(QueueCommands.ENTRY_ID) ?: "$index:${item.mediaId}") }
+}
+
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
+internal fun Player.upcomingQueueIndexes(limit: Int = Int.MAX_VALUE): List<Int> {
+    require(limit >= 0)
+    val timeline = currentTimeline
+    if (timeline.isEmpty || limit == 0) return emptyList()
     val indexes = mutableListOf<Int>()
     val visited = hashSetOf<Int>()
     var index = currentMediaItemIndex
     val queueRepeat = if (repeatMode == Player.REPEAT_MODE_ALL) Player.REPEAT_MODE_ALL else Player.REPEAT_MODE_OFF
     while (index != C.INDEX_UNSET && visited.add(index)) {
         indexes += index
-        index = currentTimeline.getNextWindowIndex(index, queueRepeat, shuffleModeEnabled)
+        if (indexes.size == limit) break
+        index = timeline.getNextWindowIndex(index, queueRepeat, shuffleModeEnabled)
     }
-    return indexes.map { index -> getMediaItemAt(index).let { item -> QueuedTrack(index, item.toTrack(),
-        item.mediaMetadata.extras?.getBoolean(RadioCommands.AUTOMATIC) == true,
-        item.mediaMetadata.extras?.getString(QueueCommands.ENTRY_ID) ?: "$index:${item.mediaId}") } }
+    return indexes
 }
 
 /** Move a future occurrence, preserving the current item and circular/shuffled playback order. */
